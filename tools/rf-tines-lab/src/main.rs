@@ -798,7 +798,7 @@ fn render(o: &Options) -> Result<(), Box<dyn Error>> {
     if let Some(csv) = &mut trace {
         writeln!(
             csv,
-            "time_s,displacement_m,velocity_m_s,contact_force_n,mechanical_energy_j,pickup_signal,contact_active,output"
+            "time_s,displacement_m,transverse_displacement_m,velocity_m_s,contact_force_n,mechanical_energy_j,pickup_signal,contact_active,output"
         )?;
     }
     let mut peak = 0.0_f64;
@@ -846,9 +846,10 @@ fn render(o: &Options) -> Result<(), Box<dyn Error>> {
             let p = engine.probe(o.note).expect("validated note");
             writeln!(
                 csv,
-                "{:.9},{:.12e},{:.12e},{:.12e},{:.12e},{:.12e},{},{:.9e}",
+                "{:.9},{:.12e},{:.12e},{:.12e},{:.12e},{:.12e},{:.12e},{},{:.9e}",
                 (frame + 1) as f64 / o.rate as f64,
                 p.displacement_m,
+                p.transverse_displacement_m,
                 p.velocity_m_s,
                 p.contact_force_n,
                 p.mechanical_energy_j,

@@ -1,14 +1,22 @@
-use crate::laboratory::{AxialAperture, aperture_voltage};
+use crate::laboratory::{AxialAperture, PlanarAperture, aperture_voltage, planar_voltage};
 use crate::{FIRST_NOTE, LAST_NOTE, MagneticPickup, ModelError, OVERSAMPLE, Profile};
 use core::f64::consts::TAU;
 
 const MODES: usize = 3;
+/// The two principal bending directions of the tine. A circular wire bends the
+/// same way in both; its support does not, which is what separates them.
+const AXES: usize = 2;
+/// Every bending mode of both axes, laid out as `axis * MODES + mode`.
+const COORDINATES: usize = MODES * AXES;
 const PICKUP_WEIGHTS: [f64; MODES] = [1.0, 0.8, 0.6];
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Probe {
     pub displacement_m: f64,
     pub velocity_m_s: f64,
+    /// Tip motion across the strike direction. Zero unless the profile rotates
+    /// the tine's principal axes off it.
+    pub transverse_displacement_m: f64,
     pub contact_force_n: f64,
     pub mechanical_energy_j: f64,
     pub pickup_signal: f64,
@@ -87,12 +95,21 @@ impl Mode {
 /// Research voice: three provisional cantilever modes, nonlinear elastic
 /// hammer contact, and an analytic flux surrogate. No measured tonebar fit yet.
 pub struct Voice {
-    modes: [Mode; MODES],
-    hammer_weights: [f64; MODES],
+    modes: [Mode; COORDINATES],
+    /// Each coordinate's displacement at the strike point per unit modal
+    /// coordinate, already carrying the projection of its own axis onto the
+    /// direction the hammer travels. The second axis's entries are zero when
+    /// the principal axes line up with the strike, which is how a profile that
+    /// predates the second coordinate keeps it silent.
+    hammer_weights: [f64; COORDINATES],
+    /// The same for the pickup, resolved into the two laboratory directions:
+    /// along the strike, and across it.
+    pickup_weights: [[f64; COORDINATES]; 2],
     note: u8,
     profile: Profile,
     pickup: MagneticPickup,
     aperture: Option<AxialAperture>,
+    planar: Option<PlanarAperture>,
     pitch_ratio: f64,
     dt: f64,
     contact_steps: usize,
@@ -171,22 +188,26 @@ impl Voice {
             profile.bar_partial_decay_seconds * scale.sqrt(),
             profile.third_partial_decay_seconds * scale.sqrt(),
         ];
-        let modes = core::array::from_fn(|i| {
+        let modes = core::array::from_fn(|c| {
+            let (axis, i) = (c / MODES, c % MODES);
             Mode::new(
-                frequency * ratios[i],
+                frequency * ratios[i] * axis_frequency_ratio(profile, axis),
                 profile.modal_mass_kg * scale,
                 1000.0_f64.ln() / t60[i],
                 dt,
                 dt / contact_steps as f64,
             )
         });
+        let (hammer_weights, pickup_weights) = resolve_axes(profile);
         Self {
             modes,
-            hammer_weights: [1.0, profile.bar_partial_strike_weight, 0.12],
+            hammer_weights,
+            pickup_weights,
             note,
             profile,
             pickup: MagneticPickup::from_validated_profile(profile),
             aperture: profile.aperture(),
+            planar: profile.planar_aperture(),
             pitch_ratio: 1.0,
             dt,
             contact_steps,
@@ -216,19 +237,21 @@ impl Voice {
             profile.bar_partial_decay_seconds * scale.sqrt(),
             profile.third_partial_decay_seconds * scale.sqrt(),
         ];
-        for (i, mode) in self.modes.iter_mut().enumerate() {
+        for (c, mode) in self.modes.iter_mut().enumerate() {
+            let (axis, i) = (c / MODES, c % MODES);
             mode.set(
-                frequency * ratios[i],
+                frequency * ratios[i] * axis_frequency_ratio(profile, axis),
                 profile.modal_mass_kg * scale,
                 1000.0_f64.ln() / t60[i],
                 self.dt,
                 self.dt / self.contact_steps as f64,
             );
         }
-        self.hammer_weights = [1.0, profile.bar_partial_strike_weight, 0.12];
+        (self.hammer_weights, self.pickup_weights) = resolve_axes(profile);
         self.hammer_mass = profile.hammer_mass_kg * scale.sqrt();
         self.pickup = MagneticPickup::from_validated_profile(profile);
         self.aperture = profile.aperture();
+        self.planar = profile.planar_aperture();
         self.profile = profile;
     }
 
@@ -243,9 +266,10 @@ impl Voice {
         self.pitch_ratio = ratio;
         let frequency = 440.0 * 2.0_f64.powf((self.note as f64 - 69.0) / 12.0) * ratio;
         let ratios = [1.0, self.profile.bar_partial_ratio, 17.55];
-        for (i, mode) in self.modes.iter_mut().enumerate() {
+        for (c, mode) in self.modes.iter_mut().enumerate() {
+            let (axis, i) = (c / MODES, c % MODES);
             mode.set(
-                frequency * ratios[i],
+                frequency * ratios[i] * axis_frequency_ratio(self.profile, axis),
                 mode.mass,
                 mode.gamma,
                 self.dt,
@@ -312,9 +336,12 @@ impl Voice {
         // Smooth, bounded flux linkage surrogate. Gap never reaches zero.
         // Phi = 1 / sqrt(1 + ((offset + position) / gap)^2).
         // Output follows -dPhi/dt, not displacement and not a post-mix clipper.
-        self.signal = match &self.aperture {
-            Some(aperture) => aperture_voltage(aperture, position, velocity),
-            None => self.pickup.voltage(position, velocity),
+        // A tip that has left the axis changes the flux through both of its
+        // coordinates, so both terms of the chain rule are kept.
+        self.signal = match (&self.aperture, &self.planar) {
+            (Some(aperture), _) => aperture_voltage(aperture, position[0], velocity[0]),
+            (None, Some(planar)) => planar_voltage(planar, position, velocity),
+            (None, None) => self.pickup.voltage(position[0], velocity[0]),
         };
         if !self.contact && self.modes.iter().map(Mode::energy).sum::<f64>() < 1e-18 {
             self.reset();
@@ -324,9 +351,9 @@ impl Voice {
 
     fn advance_contact(&mut self, h: f64) {
         let delta0 = self.hammer_x - self.contact_position();
-        let mut free_q = [0.0; MODES];
-        let mut free_v = [0.0; MODES];
-        let mut response_v = [0.0; MODES];
+        let mut free_q = [0.0; COORDINATES];
+        let mut free_v = [0.0; COORDINATES];
+        let mut response_v = [0.0; COORDINATES];
         let mut delta_free = self.hammer_x + h * self.hammer_v;
         let mut compliance = h * h / (2.0 * self.hammer_mass);
         for (i, mode) in self.modes.iter().enumerate() {
@@ -385,18 +412,23 @@ impl Voice {
             .sum()
     }
 
-    pub(crate) fn tip(&self) -> (f64, f64) {
-        let mut q = 0.0;
-        let mut v = 0.0;
-        for (mode, weight) in self.modes.iter().zip(PICKUP_WEIGHTS) {
-            q += mode.q * weight;
-            v += mode.v * weight;
+    /// Tip position and velocity in laboratory coordinates: along the strike
+    /// direction first, then across it.
+    pub(crate) fn tip(&self) -> ([f64; 2], [f64; 2]) {
+        let mut q = [0.0; 2];
+        let mut v = [0.0; 2];
+        for (c, mode) in self.modes.iter().enumerate() {
+            for direction in 0..2 {
+                q[direction] += mode.q * self.pickup_weights[direction][c];
+                v[direction] += mode.v * self.pickup_weights[direction][c];
+            }
         }
         (q, v)
     }
 
     pub fn probe(&self) -> Probe {
-        let (displacement_m, velocity_m_s) = self.tip();
+        let (position, velocity) = self.tip();
+        let (displacement_m, velocity_m_s) = (position[0], velocity[0]);
         let delta = (self.hammer_x - self.contact_position()).max(0.0);
         let hammer_energy = if self.contact {
             0.5 * self.hammer_mass * self.hammer_v * self.hammer_v
@@ -407,6 +439,7 @@ impl Voice {
         Probe {
             displacement_m,
             velocity_m_s,
+            transverse_displacement_m: position[1],
             contact_force_n: self.force,
             mechanical_energy_j: self.modes.iter().map(Mode::energy).sum::<f64>() + hammer_energy,
             pickup_signal: self.signal,
@@ -426,6 +459,47 @@ impl Voice {
         self.force = 0.0;
         self.signal = 0.0;
     }
+}
+
+/// How much faster the second principal axis runs than the first.
+///
+/// The tine is a circular wire, so its bending rigidity is the same in both
+/// directions; the split belongs to the support, which is stiffer one way than
+/// the other. The offline polarized assembly spends three ratios on that
+/// (support, rotation and tonebar); a three-mode voice has room for one, and
+/// it multiplies every bending partial of the second axis alike.
+fn axis_frequency_ratio(profile: Profile, axis: usize) -> f64 {
+    if axis == 0 {
+        1.0
+    } else {
+        profile.tine_transverse_frequency_ratio
+    }
+}
+
+/// Resolve each axis onto the laboratory directions once, at voice
+/// preparation, so that nothing per sample has to know about angles.
+///
+/// With the principal axes rotated by `theta` from the strike direction, the
+/// first axis points along `(cos, sin)` and the second along `(-sin, cos)`. The
+/// hammer travels along the strike direction and feels only what each axis
+/// contributes there, which is also how hard its force drives that axis back.
+/// At `theta = 0` the second axis contributes nothing to the strike, so it is
+/// never driven and never moves: the pair collapses to the single coordinate
+/// this voice had before, exactly and not approximately.
+fn resolve_axes(profile: Profile) -> ([f64; COORDINATES], [[f64; COORDINATES]; 2]) {
+    let (sin, cos) = profile.tine_boundary_angle_rad.sin_cos();
+    let along = [cos, -sin];
+    let across = [sin, cos];
+    let shape = [1.0, profile.bar_partial_strike_weight, 0.12];
+    let mut hammer = [0.0; COORDINATES];
+    let mut pickup = [[0.0; COORDINATES]; 2];
+    for c in 0..COORDINATES {
+        let (axis, i) = (c / MODES, c % MODES);
+        hammer[c] = shape[i] * along[axis];
+        pickup[0][c] = PICKUP_WEIGHTS[i] * along[axis];
+        pickup[1][c] = PICKUP_WEIGHTS[i] * across[axis];
+    }
+    (hammer, pickup)
 }
 
 /// Difference quotient of V(d) = k * max(d, 0)^3 / 3.

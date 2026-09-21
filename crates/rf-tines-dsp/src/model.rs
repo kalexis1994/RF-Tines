@@ -1,4 +1,4 @@
-use crate::laboratory::{AxialAperture, aperture_voltage};
+use crate::laboratory::{AxialAperture, PlanarAperture, aperture_voltage, planar_voltage};
 use crate::{MagneticPickup, SpatialPickupProfile};
 use core::f64::consts::TAU;
 use core::fmt;
@@ -64,6 +64,27 @@ pub struct Profile {
     /// coordinate, relative to the first partial's 1.0; negative because the
     /// second mode shape is inverted there. Sets how hard the hammer excites it.
     pub bar_partial_strike_weight: f64,
+    /// Rotation of the tine's principal bending axes away from the direction the
+    /// hammer strikes along.
+    ///
+    /// A circular tine bends identically in every direction, but its support
+    /// does not, so the principal axes belong to the mount rather than to the
+    /// wire. Rotated off the strike direction, one vertical blow excites both
+    /// of them; because they do not run at quite the same frequency the tip
+    /// traces a slowly turning ellipse rather than staying on a line. Zero
+    /// keeps the tip on one axis, which is the single-coordinate motion every
+    /// profile before this one had.
+    pub tine_boundary_angle_rad: f64,
+    /// The second principal axis's frequency over the first. The offline
+    /// polarized assembly carries the same idea as separate support, rotation
+    /// and tonebar ratios; this is the one number a three-mode voice can
+    /// express. At exactly one the axes are degenerate, nothing turns, and the
+    /// second axis cannot be told from the first however hard it is driven.
+    pub tine_transverse_frequency_ratio: f64,
+    /// Where the tine rests along the pickup's second coordinate. Only the
+    /// two-dimensional flux sees it; on the axis the reduction is exact and
+    /// this is zero.
+    pub pickup_transverse_offset_m: f64,
 }
 
 impl Default for Profile {
@@ -83,6 +104,12 @@ impl Default for Profile {
             pickup_law: PickupLaw::Production,
             pickup_pole_radius_m: 0.002,
             velocity_exponent: 1.4,
+            // The tine stays on one axis unless a profile asks otherwise, so
+            // every voicing that predates the second coordinate renders exactly
+            // as it did.
+            tine_boundary_angle_rad: 0.0,
+            tine_transverse_frequency_ratio: 1.0,
+            pickup_transverse_offset_m: 0.0,
         }
     }
 }
@@ -139,21 +166,52 @@ impl Profile {
         }
     }
 
-    /// The aperture pickup of this profile's geometry, when its law is Aperture.
+    /// Whether the tine leaves the pickup's axis at all.
+    ///
+    /// It does not when the principal axes line up with the strike, because
+    /// then the second axis is never driven, and it does not when the two axes
+    /// are degenerate, because then the pair moves as one line. Either way the
+    /// transverse coordinate stays at zero for the life of the note and the
+    /// axial reduction is not an approximation but the same number, computed in
+    /// ten square roots instead of sixteen.
+    pub(crate) fn leaves_the_axis(&self) -> bool {
+        self.pickup_transverse_offset_m != 0.0
+            || (self.tine_boundary_angle_rad.sin() != 0.0
+                && self.tine_transverse_frequency_ratio != 1.0)
+    }
+
+    pub(crate) fn spatial_pickup(&self) -> SpatialPickupProfile {
+        SpatialPickupProfile {
+            gap_m: self.pickup_gap_m,
+            offset_xy_m: [self.pickup_offset_m, self.pickup_transverse_offset_m],
+            pole_radius_m: self.pickup_pole_radius_m,
+            flux_scale_wb: 0.001,
+        }
+    }
+
+    /// The aperture pickup of this profile's geometry, when its law is Aperture
+    /// and the tip stays on the axis that reduction assumes.
     pub(crate) fn aperture(&self) -> Option<AxialAperture> {
-        matches!(
+        (matches!(
             self.pickup_law,
             PickupLaw::Aperture | PickupLaw::RegisterAperture
-        )
+        ) && !self.leaves_the_axis())
         .then(|| {
             AxialAperture::new(SpatialPickupProfile {
-                gap_m: self.pickup_gap_m,
                 offset_xy_m: [self.pickup_offset_m, 0.0],
-                pole_radius_m: self.pickup_pole_radius_m,
-                flux_scale_wb: 0.001,
+                ..self.spatial_pickup()
             })
             .expect("validated aperture geometry")
         })
+    }
+
+    /// The same flux kept in two dimensions, for a tip that traces an ellipse.
+    pub(crate) fn planar_aperture(&self) -> Option<PlanarAperture> {
+        (matches!(
+            self.pickup_law,
+            PickupLaw::Aperture | PickupLaw::RegisterAperture
+        ) && self.leaves_the_axis())
+        .then(|| PlanarAperture::new(self.spatial_pickup()).expect("validated aperture geometry"))
     }
 
     /// RMS pickup voltage for the reference tip motion, a sine of
@@ -161,16 +219,22 @@ impl Profile {
     /// over one period. A pure function of the pickup law and geometry.
     pub fn pickup_sensitivity(&self) -> f64 {
         let pickup = MagneticPickup::from_validated_profile(*self);
+        // The reference motion is a sine along the strike direction, but it is
+        // measured through whichever law the voice will run, at the geometry
+        // the voice will run it at. A two-plane profile that fell back to the
+        // production law here would be compensated to the wrong level.
         let aperture = self.aperture();
+        let planar = self.planar_aperture();
         let omega = TAU * LEVEL_REFERENCE_FREQUENCY_HZ;
         let mut sum = 0.0;
         for i in 0..LEVEL_REFERENCE_SAMPLES {
             let phase = TAU * i as f64 / LEVEL_REFERENCE_SAMPLES as f64;
             let x = LEVEL_REFERENCE_AMPLITUDE_M * phase.sin();
             let v = LEVEL_REFERENCE_AMPLITUDE_M * omega * phase.cos();
-            let voltage = match &aperture {
-                Some(aperture) => aperture_voltage(aperture, x, v),
-                None => pickup.voltage(x, v),
+            let voltage = match (&aperture, &planar) {
+                (Some(aperture), _) => aperture_voltage(aperture, x, v),
+                (None, Some(planar)) => planar_voltage(planar, [x, 0.0], [v, 0.0]),
+                (None, None) => pickup.voltage(x, v),
             };
             sum += voltage * voltage;
         }
@@ -268,6 +332,24 @@ impl Profile {
                 0.5,
                 3.0,
                 "velocity exponent outside 0.5..3",
+            ),
+            (
+                self.tine_boundary_angle_rad,
+                -TAU,
+                TAU,
+                "tine boundary angle outside -TAU..TAU",
+            ),
+            (
+                self.tine_transverse_frequency_ratio,
+                0.25,
+                4.0,
+                "tine transverse frequency ratio outside 0.25..4",
+            ),
+            (
+                self.pickup_transverse_offset_m,
+                -0.003,
+                0.003,
+                "pickup transverse offset outside -0.003..0.003 m",
             ),
         ] {
             if !value.is_finite() || !(minimum..=maximum).contains(&value) {

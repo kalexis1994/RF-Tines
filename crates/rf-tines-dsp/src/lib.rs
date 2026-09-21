@@ -27,7 +27,8 @@ pub use assembly::{AssemblyParameters, AssemblyProbe, AssemblyVoice};
 pub use filter::Decimator as ProductionDecimator;
 pub use hammer_memory::{HammerMemory, HammerMemoryProbe, HammerMemoryProfile};
 pub use laboratory::{
-    APERTURE_PICKUP, AxialAperture, PICKUP_LEVEL_MATCH, PICKUP_NAMES, aperture_voltage,
+    APERTURE_PICKUP, AxialAperture, PICKUP_LEVEL_MATCH, PICKUP_NAMES, PlanarAperture,
+    aperture_voltage, planar_voltage,
 };
 pub use memory_hammer::{
     MemoryHammer, MemoryHammerContactStatus, MemoryHammerContactStep, MemoryHammerProbe,
@@ -301,10 +302,12 @@ impl Engine {
                 if let Some(lab) = &self.laboratory
                     && voice.is_active()
                 {
+                    // The laboratory's comparison paths are one-coordinate
+                    // laws, so they see the motion along the strike direction.
                     let (q, v) = voice.tip();
-                    close[0] += lab.pickup.voltage(q, v);
-                    close[1] += lab.pickup.research_point_pole_voltage(q, v);
-                    close[2] += laboratory::aperture_voltage(&lab.aperture, q, v);
+                    close[0] += lab.pickup.voltage(q[0], v[0]);
+                    close[1] += lab.pickup.research_point_pole_voltage(q[0], v[0]);
+                    close[2] += laboratory::aperture_voltage(&lab.aperture, q[0], v[0]);
                 }
             }
             if !sum.is_finite() || close.iter().any(|value| !value.is_finite()) {

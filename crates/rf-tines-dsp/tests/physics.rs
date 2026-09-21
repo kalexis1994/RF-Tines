@@ -1,4 +1,4 @@
-use rf_tines_dsp::{Engine, FIRST_NOTE, LAST_NOTE, OVERSAMPLE, Profile, Voice};
+use rf_tines_dsp::{Engine, FIRST_NOTE, LAST_NOTE, OVERSAMPLE, PickupLaw, Profile, Voice};
 
 #[test]
 fn contact_is_passive_and_separates_across_registers_and_rates() {
@@ -524,4 +524,284 @@ fn pickup_law_velocity_exponent_and_level_compensation_behave() {
     };
     let ratio = rms(wide) / rms(default);
     assert!((0.7..1.42).contains(&ratio), "{ratio}");
+}
+
+/// A voicing that predates the second coordinate must render through it
+/// untouched. It does because the second axis is only ever driven by the
+/// component of the strike that lies along it, and at a zero boundary angle
+/// there is none: those three coordinates stay at exactly zero for the life of
+/// the note, and the tip never leaves the axis the reduction assumes.
+#[test]
+fn a_tine_whose_axes_face_the_hammer_never_leaves_the_strike_direction() {
+    for profile in [
+        Profile::default(),
+        Profile::calibrated(),
+        Profile::calibrated_sustain(),
+    ] {
+        for note in [FIRST_NOTE, 55, LAST_NOTE] {
+            let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+            voice.strike(0.9);
+            for _ in 0..40_000 {
+                voice.tick();
+                assert_eq!(
+                    voice.probe().transverse_displacement_m,
+                    0.0,
+                    "note {note} left the axis without being asked to"
+                );
+            }
+        }
+    }
+}
+
+/// Turning the tine's principal axes without splitting their frequencies is
+/// not observable, and it should not be: a rotation of two degenerate
+/// oscillators is a rotation of a circle. The strike divides between them by
+/// cosine and sine, they answer in step, and recombining returns the original
+/// motion exactly. This is what makes the boundary angle alone harmless and
+/// the frequency split the thing that actually does the work.
+#[test]
+fn rotating_degenerate_axes_changes_nothing_at_all() {
+    let straight = Profile::calibrated();
+    let turned = Profile {
+        tine_boundary_angle_rad: 0.3,
+        tine_transverse_frequency_ratio: 1.0,
+        ..straight
+    };
+    let mut a = Voice::new(48_000.0, 55, straight).unwrap();
+    let mut b = Voice::new(48_000.0, 55, turned).unwrap();
+    a.strike(0.8);
+    b.strike(0.8);
+    // Exact in arithmetic; in floating point the turned voice splits the drive
+    // into two resonators and adds them back, so the two series separate only
+    // by accumulated rounding. A wrong sign or a dropped projection would
+    // separate them by a fraction of the signal, not by a billionth of it.
+    let (mut moved, mut apart) = (0.0_f64, 0.0_f64);
+    for _ in 0..20_000 {
+        let (left, right) = (a.tick(), b.tick());
+        moved = moved.max(left.abs());
+        apart = apart.max((left - right).abs());
+    }
+    assert!(moved > 1e-6, "compared two silences");
+    assert!(apart <= 1e-7 * moved, "{apart} apart on a signal of {moved}");
+    // The cancellation is exact in arithmetic and a rounding crumb in floating
+    // point, so the transverse motion is judged against the swing the note
+    // actually reaches rather than against whatever it happens to be at a zero
+    // crossing. A projection that truly leaked would be a fraction of the
+    // swing, not 1e-20 of it.
+    let (swing, leak) = {
+        let mut voice = Voice::new(48_000.0, 55, turned).unwrap();
+        voice.strike(0.8);
+        let (mut swing, mut leak) = (0.0_f64, 0.0_f64);
+        for _ in 0..20_000 {
+            voice.tick();
+            let probe = voice.probe();
+            swing = swing.max(probe.displacement_m.abs());
+            leak = leak.max(probe.transverse_displacement_m.abs());
+        }
+        (swing, leak)
+    };
+    assert!(swing > 1e-6, "the turned voice never moved");
+    assert!(leak <= 1e-12 * swing, "leaked {leak} against a swing of {swing}");
+}
+
+/// With the axes split as well as turned, the tip stops travelling on a line.
+/// Both principal directions are driven by the one blow, they drift out of
+/// phase because they do not run at the same frequency, and the trajectory
+/// opens into an ellipse whose orientation keeps turning. That is the motion
+/// the high-speed measurements report and the motion a one-coordinate voice
+/// cannot have.
+#[test]
+fn split_axes_open_the_tip_trajectory_into_an_ellipse() {
+    let profile = Profile {
+        tine_boundary_angle_rad: 0.3,
+        tine_transverse_frequency_ratio: 1.02,
+        ..Profile::calibrated()
+    };
+    let mut voice = Voice::new(48_000.0, 55, profile).unwrap();
+    voice.strike(0.8);
+    let (mut along, mut across, mut area) = (0.0_f64, 0.0_f64, 0.0_f64);
+    let mut previous = (0.0, 0.0);
+    for _ in 0..40_000 {
+        voice.tick();
+        let probe = voice.probe();
+        let now = (probe.displacement_m, probe.transverse_displacement_m);
+        along = along.max(now.0.abs());
+        across = across.max(now.1.abs());
+        // Twice the swept area: a straight line sweeps none however long it runs.
+        area += (previous.0 * now.1 - previous.1 * now.0).abs();
+        previous = now;
+    }
+    assert!(across > 0.0, "the second axis never moved");
+    // The transverse swing is a real share of the driven one, not a rounding crumb.
+    assert!(
+        across > along * 0.01,
+        "transverse {across} against {along}"
+    );
+    assert!(area > 0.0, "the tip stayed on a line");
+}
+
+/// The two-dimensional flux is the same flux, not a second law. On the axis it
+/// returns exactly what the ten-square-root reduction returns, and its
+/// transverse component is zero there because the mirrored halves of the pole
+/// ring cancel.
+#[test]
+fn the_planar_flux_agrees_with_the_axial_reduction_on_the_axis() {
+    use rf_tines_dsp::{APERTURE_PICKUP, AxialAperture, PlanarAperture, aperture_voltage,
+        planar_voltage};
+    let axial = AxialAperture::new(APERTURE_PICKUP).unwrap();
+    let planar = PlanarAperture::new(APERTURE_PICKUP).unwrap();
+    let places = [-0.003, -0.0005, 0.0, 0.0002, 0.001, 0.004];
+    // At -0.5 mm the tine sits dead on the pole axis and both laws return zero,
+    // so agreement is judged against the scale the law reaches elsewhere.
+    let scale = places
+        .iter()
+        .map(|&x| aperture_voltage(&axial, x, 1.0).abs())
+        .fold(0.0_f64, f64::max);
+    assert!(scale > 0.0);
+    for displacement in places {
+        for speed in [-1.7, 0.0, 0.3] {
+            let reduced = aperture_voltage(&axial, displacement, speed);
+            let full = planar_voltage(&planar, [displacement, 0.0], [speed, 0.0]);
+            assert!(
+                (reduced - full).abs() <= 1e-12 * scale * speed.abs().max(1.0),
+                "at {displacement} m, {speed} m/s: {reduced} against {full}"
+            );
+            let slope = planar.gradient_wb_per_m([displacement, 0.0]);
+            assert!(
+                slope[1].abs() <= 1e-12 * scale,
+                "at {displacement} m the mirrored halves failed to cancel: {slope:?}"
+            );
+        }
+    }
+    // Off the axis the transverse slope is real, and it is what the axial
+    // reduction has no way to report.
+    let off = planar.gradient_wb_per_m([0.0, 0.0003]);
+    assert!(off[1].abs() > 0.01 * off[0].abs().max(1e-30), "{off:?}");
+    assert!(planar.gradient_wb_per_m([0.06, 0.0])[0].is_nan());
+    assert!(planar.gradient_wb_per_m([0.0, f64::NAN])[0].is_nan());
+}
+
+/// The contact stays passive with both axes in the solve. The hammer pushes
+/// along one direction and each axis takes the share its own orientation
+/// gives it, so the same energy ledger has to hold over six coordinates.
+#[test]
+fn a_split_tine_still_takes_no_energy_from_the_hammer() {
+    let profile = Profile {
+        tine_boundary_angle_rad: 0.4,
+        tine_transverse_frequency_ratio: 1.05,
+        ..Profile::calibrated()
+    };
+    for note in [FIRST_NOTE, 55, LAST_NOTE] {
+        for velocity in [0.05, 0.5, 1.0] {
+            let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+            voice.strike(velocity);
+            let mut previous = voice.probe().mechanical_energy_j;
+            for _ in 0..(48_000.0 * OVERSAMPLE as f64 * 0.04) as usize {
+                let value = voice.tick();
+                assert!(value.is_finite());
+                let now = voice.probe().mechanical_energy_j;
+                assert!(
+                    now <= previous * (1.0 + 1e-8) + 1e-15,
+                    "energy grew at {note}/{velocity}: {now} > {previous}"
+                );
+                previous = now;
+            }
+            assert!(!voice.probe().contact_active, "contact did not separate");
+        }
+    }
+}
+
+/// Whether the tip passes above or below the pole has to be audible, and only
+/// an ellipse can make it so.
+///
+/// The pole's node ring is mirror symmetric, so while the tip stays on the
+/// axis the flux it sees is an even function of the transverse offset: moving
+/// the pickup the same distance the other way gives back the identical
+/// waveform, and the offset is inaudible. Once the trajectory opens, the tip
+/// spends its swing on one side of the pole rather than the other and the two
+/// settings stop agreeing. This is the whole reason the second coordinate is
+/// worth carrying: a voice that computed the flux at the axis, or that ignored
+/// where the tine rests across it, would pass everything else and fail here.
+#[test]
+fn which_side_of_the_pole_the_ellipse_leans_to_is_audible() {
+    let render = |profile: Profile| {
+        let mut voice = Voice::new(48_000.0, 55, profile).unwrap();
+        voice.strike(0.8);
+        (0..20_000).map(|_| voice.tick()).collect::<Vec<_>>()
+    };
+    let separation = |profile: Profile| {
+        let above = render(Profile {
+            pickup_transverse_offset_m: 0.0003,
+            ..profile
+        });
+        let below = render(Profile {
+            pickup_transverse_offset_m: -0.0003,
+            ..profile
+        });
+        let reach = above.iter().fold(0.0_f64, |m, x| m.max(x.abs()));
+        assert!(reach > 1e-6, "compared two silences");
+        let apart = above
+            .iter()
+            .zip(&below)
+            .fold(0.0_f64, |m, (x, y)| m.max((x - y).abs()));
+        apart / reach
+    };
+
+    let flat = Profile {
+        pickup_law: PickupLaw::Aperture,
+        tine_boundary_angle_rad: 0.0,
+        ..Profile::calibrated()
+    };
+    assert!(
+        separation(flat) <= 1e-12,
+        "a tip on the axis should not be able to tell the two sides apart"
+    );
+
+    let elliptical = Profile {
+        tine_boundary_angle_rad: 0.3,
+        tine_transverse_frequency_ratio: 1.02,
+        ..flat
+    };
+    let opened = separation(elliptical);
+    assert!(
+        opened > 0.01,
+        "the ellipse leaned one way and nothing changed: {opened}"
+    );
+}
+
+/// Level compensation has to be measured through the law the voice will
+/// actually run. The reference motion is a sine along the strike direction, so
+/// a tine whose axes are only slightly split reaches nearly the same
+/// sensitivity as one that is not split at all; a profile that quietly fell
+/// back to the production law would be off by a large factor instead.
+#[test]
+fn a_two_plane_profile_is_compensated_through_its_own_pickup() {
+    let flat = Profile {
+        pickup_law: PickupLaw::Aperture,
+        ..Profile::calibrated()
+    };
+    let split = Profile {
+        tine_boundary_angle_rad: 0.3,
+        tine_transverse_frequency_ratio: 1.02,
+        ..flat
+    };
+    let ratio = split.pickup_sensitivity() / flat.pickup_sensitivity();
+    assert!(
+        (ratio - 1.0).abs() < 1e-12,
+        "the same geometry measured two different ways: {ratio}"
+    );
+    // Moving the tine across the pole changes how much voltage a given swing
+    // makes, and the compensation has to see that rather than ignore the
+    // coordinate. Which way it moves is geometry, not intuition: with a 2 mm
+    // pole a 0.8 mm lean carries the tine towards the node ring rather than
+    // away from the magnet, so the sensitivity rises.
+    let leaned = Profile {
+        pickup_transverse_offset_m: 0.0008,
+        ..split
+    };
+    let leaned_ratio = leaned.pickup_sensitivity() / flat.pickup_sensitivity();
+    assert!(
+        (leaned_ratio - 1.0).abs() > 0.05,
+        "leaning the tine across the pole changed nothing: {leaned_ratio}"
+    );
 }

@@ -117,3 +117,10 @@ inspected and must be treated as development data in subsequent fitting;
 reserve fresh notes before the next search. Seek improvement in even/odd
 harmonic balance together, then reapply envelope and coverage gates before
 preparing the standard RackForge audition workflow.
+
+## Follow-up
+
+The search's floor turned out to be the finding. This run, and every pickup
+search after it, bounded the gap below at 0.5 mm and finished sitting on that
+bound; the instrument's service manual does not permit that geometry at all.
+See [the pickup geometry ceiling](PICKUP-GEOMETRY-CEILING.md).

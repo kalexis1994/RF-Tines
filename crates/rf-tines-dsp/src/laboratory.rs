@@ -86,6 +86,78 @@ pub fn aperture_voltage(pickup: &AxialAperture, displacement_m: f64, velocity_m_
     -0.015 * pickup.slope_wb_per_m(displacement_m) * velocity_m_s / APERTURE_PICKUP.flux_scale_wb
 }
 
+/// The same 16-node flux, kept in both transverse directions.
+///
+/// `AxialAperture` merges the mirrored azimuths, which is exact only while the
+/// tip stays on the axis: off it the two halves of the pole ring no longer see
+/// the same distance and their transverse contributions stop cancelling. A tine
+/// whose principal bending axes are rotated off the strike direction does leave
+/// the axis, so it needs all sixteen nodes and both components of the slope.
+/// The gradient here is the analytic derivative of the same node flux
+/// `SpatialPickup::flux_wb` sums, so on the axis it returns exactly what the
+/// reduction returns, with a transverse component of zero.
+pub struct PlanarAperture {
+    nodes: [[f64; 2]; 16],
+    offset: [f64; 2],
+    gap_squared: f64,
+    scale: f64,
+}
+
+impl PlanarAperture {
+    pub fn new(p: SpatialPickupProfile) -> Result<Self, ModelError> {
+        p.validate()?;
+        // The same two-radius, eight-azimuth disk quadrature as `SpatialPickup`,
+        // unmerged because the mirrored pairs no longer agree off the axis.
+        let nodes = core::array::from_fn(|i| {
+            let sign = if i < 8 { -1.0 } else { 1.0 };
+            let r = p.pole_radius_m * ((1.0 + sign / 3.0_f64.sqrt()) / 2.0).sqrt();
+            let (sn, cs) = (TAU * (i % 8) as f64 / 8.0).sin_cos();
+            [r * cs, r * sn]
+        });
+        Ok(Self {
+            nodes,
+            offset: p.offset_xy_m,
+            gap_squared: p.gap_m.powi(2),
+            scale: -3.0 * p.flux_scale_wb * p.gap_m.powi(3) / 16.0,
+        })
+    }
+
+    /// Flux slope in both directions, weber per metre; NaN outside the flux
+    /// law's +-50 mm domain, which the engine treats as a numerical fault.
+    pub fn gradient_wb_per_m(&self, position: [f64; 2]) -> [f64; 2] {
+        if position
+            .iter()
+            .any(|x| !(-0.05..=0.05).contains(x) || !x.is_finite())
+        {
+            return [f64::NAN; 2];
+        }
+        let mut sum = [0.0; 2];
+        for node in self.nodes {
+            let u = [
+                position[0] + self.offset[0] - node[0],
+                position[1] + self.offset[1] - node[1],
+            ];
+            let r2 = self.gap_squared + u[0] * u[0] + u[1] * u[1];
+            let weight = 1.0 / (r2 * r2 * r2.sqrt());
+            sum[0] += weight * u[0];
+            sum[1] += weight * u[1];
+        }
+        [self.scale * sum[0], self.scale * sum[1]]
+    }
+}
+
+/// The finite-aperture law for a tip that moves in two directions: the same
+/// `-0.015 dPhi/dt`, with the flux changing through both coordinates at once.
+pub fn planar_voltage(
+    pickup: &PlanarAperture,
+    position_m: [f64; 2],
+    velocity_m_s: [f64; 2],
+) -> f64 {
+    let gradient = pickup.gradient_wb_per_m(position_m);
+    -0.015 * (gradient[0] * velocity_m_s[0] + gradient[1] * velocity_m_s[1])
+        / APERTURE_PICKUP.flux_scale_wb
+}
+
 pub(crate) struct Laboratory {
     pub pickup: MagneticPickup,
     pub aperture: AxialAperture,
