@@ -7,6 +7,15 @@ pub struct SpatialPickupProfile {
     pub gap_m: f64,
     pub offset_xy_m: [f64; 2],
     pub pole_radius_m: f64,
+    /// How far the pole face is ground from a disc towards an edge.
+    ///
+    /// Zero is the circular face every geometry used before this, and one
+    /// collapses the source onto a line across the direction the tine
+    /// travels. The sources describe the real tip as wedge shaped and
+    /// pointing at the tine; which way the edge runs they do not say, and
+    /// across the travel is the orientation that removes the flux slope's
+    /// sign inversion. See docs/WEDGE-POLE.md.
+    pub pole_wedge: f64,
     /// Flux linkage scale (weber-turn), not a voltage gain or fitted magnetic field.
     pub flux_scale_wb: f64,
 }
@@ -16,6 +25,7 @@ impl Default for SpatialPickupProfile {
             gap_m: 0.0015,
             offset_xy_m: [0.0005, 0.0002],
             pole_radius_m: 0.0005,
+            pole_wedge: 0.0,
             flux_scale_wb: 0.001,
         }
     }
@@ -27,6 +37,7 @@ impl SpatialPickupProfile {
             bounded(x, -0.01, 0.01)?;
         }
         bounded(self.pole_radius_m, 0.0, 0.003)?;
+        bounded(self.pole_wedge, 0.0, 1.0)?;
         bounded(self.flux_scale_wb, 0.0, 0.02)
     }
 }
@@ -42,7 +53,7 @@ impl SpatialPickup {
             let sign = if i < 8 { -1.0 } else { 1.0 };
             let r = p.pole_radius_m * ((1.0 + sign / 3.0_f64.sqrt()) / 2.0).sqrt();
             let (sn, cs) = (TAU * (i % 8) as f64 / 8.0).sin_cos();
-            [r * cs, r * sn]
+            [r * cs * (1.0 - p.pole_wedge), r * sn]
         });
         Ok(Self { p, nodes })
     }

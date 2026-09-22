@@ -102,6 +102,10 @@ pub struct Profile {
     /// T60 of the tonebar alone at A3. The measurements call it the more
     /// heavily damped prong, so this is shorter than `decay_seconds`.
     pub tonebar_decay_seconds: f64,
+    /// How far the pickup's pole face is ground from a disc towards an edge.
+    /// Zero is the circular face every geometry used before this one. See
+    /// docs/WEDGE-POLE.md.
+    pub pickup_pole_wedge: f64,
 }
 
 impl Default for Profile {
@@ -134,6 +138,7 @@ impl Default for Profile {
             tonebar_frequency_ratio: 1.5,
             tonebar_mass_ratio: 8.0,
             tonebar_decay_seconds: 4.0,
+            pickup_pole_wedge: 0.0,
         }
     }
 }
@@ -209,6 +214,7 @@ impl Profile {
             gap_m: self.pickup_gap_m,
             offset_xy_m: [self.pickup_offset_m, self.pickup_transverse_offset_m],
             pole_radius_m: self.pickup_pole_radius_m,
+            pole_wedge: self.pickup_pole_wedge,
             flux_scale_wb: 0.001,
         }
     }
@@ -398,6 +404,12 @@ impl Profile {
                 0.05,
                 80.0,
                 "tonebar decay outside 0.05..80 seconds",
+            ),
+            (
+                self.pickup_pole_wedge,
+                0.0,
+                1.0,
+                "pickup pole wedge outside 0..1",
             ),
         ] {
             if !value.is_finite() || !(minimum..=maximum).contains(&value) {

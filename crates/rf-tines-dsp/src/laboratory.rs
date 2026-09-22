@@ -24,6 +24,7 @@ pub const APERTURE_PICKUP: SpatialPickupProfile = SpatialPickupProfile {
     gap_m: 0.0005,
     offset_xy_m: [0.0005, 0.0],
     pole_radius_m: 0.002,
+    pole_wedge: 0.0,
     flux_scale_wb: 0.001,
 };
 
@@ -52,7 +53,13 @@ impl AxialAperture {
             for k in 0..5 {
                 let (sn, cs) = (TAU * k as f64 / 8.0).sin_cos();
                 let weight = if k == 0 || k == 4 { 1.0 } else { 2.0 };
-                terms[half * 5 + k] = [r * cs, p.gap_m.powi(2) + (r * sn).powi(2), weight];
+                // Grinding the face towards an edge squashes the source along
+                // the direction the tine travels; see `pole_wedge`.
+                terms[half * 5 + k] = [
+                    r * cs * (1.0 - p.pole_wedge),
+                    p.gap_m.powi(2) + (r * sn).powi(2),
+                    weight,
+                ];
             }
         }
         Ok(Self {
@@ -112,7 +119,7 @@ impl PlanarAperture {
             let sign = if i < 8 { -1.0 } else { 1.0 };
             let r = p.pole_radius_m * ((1.0 + sign / 3.0_f64.sqrt()) / 2.0).sqrt();
             let (sn, cs) = (TAU * (i % 8) as f64 / 8.0).sin_cos();
-            [r * cs, r * sn]
+            [r * cs * (1.0 - p.pole_wedge), r * sn]
         });
         Ok(Self {
             nodes,

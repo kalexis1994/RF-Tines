@@ -150,6 +150,7 @@ fn main() -> Result<()> {
         gap_m: 0.0005,
         offset_xy_m: [0.0005, 0.0],
         pole_radius_m: 0.002,
+        pole_wedge: 0.0,
         flux_scale_wb: 0.001,
     })?;
     let shipping_curve: [f64; KNOTS] = core::array::from_fn(|i| {

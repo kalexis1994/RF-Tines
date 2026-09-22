@@ -65,6 +65,7 @@ pub fn flux(g: Geometry, x: f64) -> Result<f64, Box<dyn Error>> {
             gap_m: g.gap_m,
             offset_xy_m: [g.offset_m, 0.0],
             pole_radius_m: g.pole_radius_m,
+            pole_wedge: 0.0,
             flux_scale_wb: 0.001,
         })?
         .flux_wb([x, 0.0])?,

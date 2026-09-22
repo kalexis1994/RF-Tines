@@ -307,9 +307,32 @@ impl Options {
     }
 }
 
+/// The laboratory builds whole engines as values on the stack.
+///
+/// An `Engine` holds all 73 voices inline, which is about 175 KB, and
+/// constructing one moves that array at least twice; the four-pickup
+/// laboratory path builds more on top. The plugin never notices because it
+/// keeps its engine in a `Box`, but this tool does not, and the main thread's
+/// default stack is not generous enough on every platform. It overflowed the
+/// day the tine gained its tonebar and each voice grew by a third, which the
+/// CLI tests caught as five renders failing at once.
+///
+/// Giving the work its own thread with room to stand is the fix that does not
+/// change how the DSP allocates, which matters because the same code runs
+/// under a realtime callback where an allocation is not free.
+const STACK_BYTES: usize = 64 * 1024 * 1024;
+
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("error: {error}");
+    let worker = std::thread::Builder::new()
+        .stack_size(STACK_BYTES)
+        .spawn(|| {
+            if let Err(error) = run() {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+        })
+        .expect("spawn the laboratory thread");
+    if worker.join().is_err() {
         std::process::exit(1);
     }
 }

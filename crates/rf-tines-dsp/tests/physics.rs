@@ -1033,3 +1033,120 @@ fn joining_the_tonebar_leaves_the_note_where_it_was() {
         }
     }
 }
+
+/// A wedge-ground pole must not invert anywhere the tine goes.
+///
+/// docs/PICKUP-GEOMETRY-CEILING.md found the disc's flux slope changing sign
+/// about 390 µm out at the geometry this model needs, which is inside the
+/// swing the bass notes reach: their waveform turns over mid-cycle. That
+/// spread belongs to the face being circular, so grinding it towards an edge
+/// across the direction of travel has to remove it by construction, at every
+/// gap the service manual allows and at the one the model actually uses.
+///
+/// This is the structural half of the wedge's prediction: it either inverts
+/// or it does not.
+#[test]
+fn a_wedge_ground_pole_never_turns_the_flux_slope_over() {
+    use rf_tines_dsp::{AxialAperture, SpatialPickupProfile, aperture_voltage};
+    // The bottom note swings 1.83 mm at full velocity.
+    const REACH_M: f64 = 0.002;
+    for gap_mm in [0.5, 1.588, 2.4, 3.175] {
+        for offset_mm in [0.1, 0.25, 0.5] {
+            let build = |wedge: f64| {
+                AxialAperture::new(SpatialPickupProfile {
+                    gap_m: gap_mm * 1e-3,
+                    offset_xy_m: [offset_mm * 1e-3, 0.0],
+                    pole_radius_m: 0.002,
+                    pole_wedge: wedge,
+                    flux_scale_wb: 0.001,
+                })
+                .unwrap()
+            };
+            let inversions = |wedge: f64| {
+                let pickup = build(wedge);
+                let mut flips = 0;
+                let mut previous = aperture_voltage(&pickup, -REACH_M, 1.0);
+                let mut step = -REACH_M;
+                while step < REACH_M {
+                    step += 1e-6;
+                    let now = aperture_voltage(&pickup, step, 1.0);
+                    if now * previous < 0.0 {
+                        flips += 1;
+                    }
+                    previous = now;
+                }
+                flips
+            };
+            // Exactly one, and only one. Every pickup's flux slope passes
+            // through zero where the tine sits dead in front of the pole,
+            // because the flux is at its extremum there; that crossing is
+            // physics and cannot be removed. What the disc adds is a second
+            // one further out, and that is the artefact.
+            assert_eq!(
+                inversions(1.0),
+                1,
+                "a wedge at {gap_mm} / {offset_mm} mm does not cross exactly once"
+            );
+        }
+    }
+    // And the disc it replaces crosses twice at the geometry the model
+    // needs, so the test is measuring a real difference and not an empty
+    // range. 390 um out is where docs/PICKUP-GEOMETRY-CEILING.md found the
+    // second one, inside the swing the bass notes reach.
+    let disc = AxialAperture::new(SpatialPickupProfile {
+        gap_m: 0.0005,
+        offset_xy_m: [0.0005, 0.0],
+        pole_radius_m: 0.002,
+        pole_wedge: 0.0,
+        flux_scale_wb: 0.001,
+    })
+    .unwrap();
+    let mut flips = 0;
+    let mut previous = aperture_voltage(&disc, -REACH_M, 1.0);
+    let mut step = -REACH_M;
+    while step < REACH_M {
+        step += 1e-6;
+        let now = aperture_voltage(&disc, step, 1.0);
+        if now * previous < 0.0 {
+            flips += 1;
+        }
+        previous = now;
+    }
+    assert!(
+        flips > 1,
+        "the disc stopped adding a crossing, so this test proves nothing: {flips}"
+    );
+}
+
+/// Grinding nothing off the face leaves the pole exactly as it was.
+#[test]
+fn a_pole_with_no_wedge_is_the_disc_it_always_was() {
+    use rf_tines_dsp::{AxialAperture, SpatialPickupProfile, aperture_voltage};
+    let build = |wedge: f64| {
+        AxialAperture::new(SpatialPickupProfile {
+            gap_m: 0.0005,
+            offset_xy_m: [0.0005, 0.0],
+            pole_radius_m: 0.002,
+            pole_wedge: wedge,
+            flux_scale_wb: 0.001,
+        })
+        .unwrap()
+    };
+    let (plain, unground) = (build(0.0), build(0.0));
+    for step in -20..=20 {
+        let x = f64::from(step) * 1e-4;
+        assert_eq!(
+            aperture_voltage(&plain, x, 0.7),
+            aperture_voltage(&unground, x, 0.7)
+        );
+    }
+    // And a ground one is genuinely different, or the parameter does nothing.
+    let ground = build(1.0);
+    let apart = (-20..=20)
+        .map(|step| {
+            let x = f64::from(step) * 1e-4;
+            (aperture_voltage(&plain, x, 0.7) - aperture_voltage(&ground, x, 0.7)).abs()
+        })
+        .fold(0.0_f64, f64::max);
+    assert!(apart > 1e-3, "grinding the face changed nothing: {apart}");
+}
