@@ -37,11 +37,33 @@ pub(crate) fn build_to(output: &Path) -> Result<(), Box<dyn Error>> {
         return Err(format!("refusing to overwrite {}", output.display()).into());
     }
     super::web_ui::build()?;
-    for file in [&store, &core, &component] {
+    // Build the component here rather than trusting whatever is on disk. It
+    // used to be checked for existence only, so a stale artifact from an
+    // earlier version packaged silently, and the only tell was the smoke
+    // test's peak changing by a ten-thousandth.
+    run(Command::new("cargo").current_dir(root).args([
+        "build",
+        "--locked",
+        "--release",
+        "--target",
+        "wasm32-unknown-unknown",
+        "-p",
+        "rf-tines-plugin",
+    ]))?;
+    for file in [&store, &core] {
         if !file.is_file() {
             return Err(format!("build the required artifact first: {}", file.display()).into());
         }
     }
+    if !component.is_file() {
+        return Err(format!("the component did not build: {}", component.display()).into());
+    }
+    // Belt and braces. `CARGO_PKG_VERSION` is compiled into the component as
+    // the program descriptor's plugin_version, so a component built at
+    // another version does not carry this string. This catches a build that
+    // reported success without replacing the artifact, which a freshness
+    // check on the file's timestamp would not.
+    verify_component_version(&component)?;
     fs::create_dir_all(&dist)?;
     fs::copy(&component, package.join("component.wasm"))?;
     run(Command::new(&core).arg("inspect").arg(&package))?;
@@ -59,6 +81,23 @@ pub(crate) fn build_to(output: &Path) -> Result<(), Box<dyn Error>> {
         .arg(output))?;
     println!("Validated package: {}", output.display());
     Ok(())
+}
+
+/// Fails unless the built component carries this crate's version string.
+fn verify_component_version(component: &Path) -> Result<(), Box<dyn Error>> {
+    let version = env!("CARGO_PKG_VERSION");
+    let bytes = fs::read(component)?;
+    if bytes
+        .windows(version.len())
+        .any(|window| window == version.as_bytes())
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "{} does not carry version {version}; it was built from other sources",
+        component.display()
+    )
+    .into())
 }
 
 pub(crate) fn run(command: &mut Command) -> Result<(), Box<dyn Error>> {

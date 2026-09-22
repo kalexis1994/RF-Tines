@@ -34,6 +34,15 @@ releases published before the rename keep the names that were current then.
   folds it into the state digest, so the two disagreeing meant saved states
   were labelled with a schema they were not written in. The plugin's own
   migration reads the version from the blob, so nothing was mis-loaded.
+- Made the packager build the component instead of trusting whatever is on
+  disk. It checked only that a component existed, so an artifact from another
+  version packaged silently and the only tell was the smoke test's peak moving
+  in the fourth decimal. Building alone is not enough either -- cargo treats an
+  artifact as up to date by fingerprint and will not replace one restored from
+  elsewhere -- so the component is also checked for this crate's version
+  string, which reaches it through the program descriptor. Verified by planting
+  a component from another version: the build step passed it through and the
+  version check caught it.
 - Extended the calibration protocol to the attack, which three earlier
   decisions had been made without: the contact was softened, the tonebar was
   switched off and a resonance bank was discarded, all on an objective that
@@ -52,6 +61,45 @@ releases published before the rename keep the names that were current then.
 - Audition build, superseded. Shipped the clamp flat at 0.6, which cost the
   treble up to 14.7 dB of level. The transient term had already reported a
   228% regression before it was packaged, and it was packaged anyway.
+
+## 0.2.4 - 2026-09-22
+
+- Softened the hammer contact from 4e10 to 4e8 N/m^2 and reparameterised the
+  `hardness` control around it. A listener heard a short tick at the start of
+  every note that the reference does not have; traced, the hammer was on the
+  tine for 116 us where piano hammers are measured between 0.3 and 4 ms, and a
+  force that brief excites far more 5-10 kHz than the instrument does. The
+  frozen objective fell 41.4% and the tick fell 24 dB. See
+  [what a listener heard](docs/WHAT-A-LISTENER-HEARD.md).
+- No entry was written at the time; this one is reconstructed from commit
+  6d16a7b and is shorter than the change deserved.
+
+## 0.2.3 - 2026-09-22
+
+- Added the magnetic-circuit pickup law, `PickupLaw::Reluctance`, deriving the
+  flux from the reluctance the moving tine changes rather than from a field a
+  probe reads. It fits best of the four on the training notes and fails the
+  per-note gate, so it is available and not the default. See
+  [the reluctance pickup](docs/RELUCTANCE-PICKUP.md).
+- Added the wedge-ground pole piece, which works and was deliberately not
+  promoted; see [the wedge pole](docs/WEDGE-POLE.md).
+- Reconstructed from commits 8d80493, 661085e, 5a4fd5b and 8a79002. No entry
+  was written at the time.
+
+## 0.2.2 - 2026-09-21
+
+- Gave `Settings` the physical controls that reach the sound -- hammer mass,
+  tine mass, pole radius and the axis twist from the two-plane work -- after
+  measuring that hammer hardness, the control carrying the presets' whole era
+  story, was worth 0.59 dB in the attack and 0.03 in the body. Eight instrument
+  presets replace the five decade voicings, each anchored to a documented
+  change; measured through the plugin the set went from 3.71 dB apart on
+  average to 5.32. None is named after anybody's product. See
+  [period instruments](docs/PERIOD-INSTRUMENTS.md).
+- Added the tine's second bending direction and let the pickup see it. See
+  [the pickup geometry ceiling](docs/PICKUP-GEOMETRY-CEILING.md).
+- Reconstructed from commits 71dfa8b and 368f6dd. No entry was written at the
+  time.
 
 ## 0.2.1 - 2026-09-18
 

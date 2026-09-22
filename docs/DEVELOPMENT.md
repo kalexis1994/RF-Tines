@@ -142,7 +142,16 @@ Build RackForge's current Rust `rackforge-store` and `rackforge-core` tools in i
 cargo run --release -p rf-tines-lab -- package
 ```
 
-The Rust laboratory resolves the sibling host tools, copies the current WASM to ignored `package/component.wasm`, validates metadata, renders through the host and creates the archive only after validation succeeds. It never overwrites an existing archive. Old prebuilt host binaries may not support the current API; rebuild them from the pinned source. To inspect or smoke-test manually:
+The Rust laboratory builds the component itself, resolves the sibling host
+tools, copies the WASM to ignored `package/component.wasm`, validates
+metadata, renders through the host and creates the archive only after
+validation succeeds. It used to check only that a component existed, so an
+artifact left over from another version packaged silently and the only tell
+was the smoke test's peak moving in the fourth decimal. Building is not
+enough on its own -- cargo considers an artifact up to date by fingerprint and
+will not replace one that was tampered with or restored from elsewhere -- so
+the component is also checked for this crate's version string, which reaches
+it through the program descriptor's `plugin_version`. It never overwrites an existing archive. Old prebuilt host binaries may not support the current API; rebuild them from the pinned source. To inspect or smoke-test manually:
 
 ```text
 ../rackforge/target/release/rackforge-core inspect package
