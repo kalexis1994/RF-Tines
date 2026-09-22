@@ -130,6 +130,43 @@ cargo run --locked --release -p rf-tines-lab -- converge --output renders/treble
 
 The command compares fixed 4/8/16/32x integration and the production contact-refined voice against a finite 64x reference. It uses a common offline filter and writes mechanical, attack and full-window errors without automatic alignment. See [Numerical convergence](CONVERGENCE.md). Duration is limited to 0.05–1 second and velocity to 0.01–1 so the experiment stays bounded and above negligible excitation.
 
+## The `rackforge-pinned` worktree
+
+`.github/workflows/ci.yml` and `release.yml` check the host out at
+`782012f10de903a67511a613fc999b392bf87afe`, which is RackForge 0.1.20. A
+sibling clone of RackForge used for day-to-day work moves ahead of that, so
+nothing local reproduces what CI builds against.
+
+A git worktree of the pinned commit, beside the ordinary clone, does:
+
+```text
+cd ../rackforge
+git worktree add --detach ../rackforge-pinned 782012f10de903a67511a613fc999b392bf87afe
+```
+
+It is a worktree of the same repository rather than a second clone, so it
+costs a checkout and no history, and `git worktree list` in RackForge shows
+where it came from. It is expected to sit in detached HEAD; that is not a
+mistake to correct.
+
+What it is for:
+
+- **Regenerating `Cargo.lock`**, as the section above describes. This is the
+  only supported way to produce a lock CI will accept.
+- **Reproducing a CI failure that the local host hides.** Point the two path
+  dependencies at it, and `cargo check`, `cargo test` and `cargo metadata
+  --locked` then see the versions CI sees. The SDK gained 478 lines between
+  0.1.20 and 0.1.23, and whether RF-Tines uses any of them is a question only
+  a build against the pin answers.
+
+Two things to keep in mind. Any `cargo` command run without `--locked` while
+the paths point at the ordinary clone rewrites the lock to that clone's
+version, which breaks CI silently; check `Cargo.lock` before committing.
+And when the workflows are repointed at a newer host, this worktree should
+move with them -- `git -C ../rackforge worktree remove ../rackforge-pinned`
+and add it again at the new commit -- or it becomes a quiet source of answers
+about a host nobody builds against any more.
+
 ## The lock file belongs to the pinned host, not to yours
 
 `Cargo.lock` records the version of every path dependency, and the RackForge
