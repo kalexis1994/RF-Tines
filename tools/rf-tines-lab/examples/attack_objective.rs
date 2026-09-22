@@ -106,7 +106,7 @@ fn score_attack(cases: &[Case], profile: impl Fn(u8) -> Profile) -> Result<(f64,
 }
 
 fn score_balance(cases: &[Case], profile: Profile) -> Result<f64> {
-    let (mse, _) = score_with(cases, profile, false, |c, p, seconds| render(c, p, seconds))?;
+    let (mse, _) = score_with(cases, profile, false, render)?;
     Ok(mse)
 }
 

@@ -49,15 +49,21 @@ fn read_wav(path: &Path) -> Result<(Vec<f64>, f64)> {
     let bits = u16::from_le_bytes(fmt[14..16].try_into()?);
     let all: Vec<f64> = match (tag, bits) {
         (3, 32) => data
-            .chunks_exact(4)
-            .map(|c| f64::from(f32::from_le_bytes(c.try_into().unwrap())))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|c| f64::from(f32::from_le_bytes(*c)))
             .collect(),
         (1, 16) => data
-            .chunks_exact(2)
-            .map(|c| f64::from(i16::from_le_bytes(c.try_into().unwrap())) / 32768.0)
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| f64::from(i16::from_le_bytes(*c)) / 32768.0)
             .collect(),
         (1, 24) => data
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .map(|c| {
                 let v = i32::from(c[0]) | i32::from(c[1]) << 8 | (i32::from(c[2] as i8)) << 16;
                 f64::from(v) / 8_388_608.0
