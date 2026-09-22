@@ -1150,3 +1150,173 @@ fn a_pole_with_no_wedge_is_the_disc_it_always_was() {
         .fold(0.0_f64, f64::max);
     assert!(apart > 1e-3, "grinding the face changed nothing: {apart}");
 }
+
+/// A voice must ring at one pitch.
+///
+/// The calibration objective scores the levels of the second, third and
+/// fourth harmonics against the fundamental, in two windows. It has no term
+/// for a *second pitch*. So a search is free to park a strong partial a
+/// semitone from the fundamental if that happens to move those levels the
+/// right way, and one did: a fitted candidate put 78 cents and -10.7 dB next
+/// to the note, which beats against it at 9 Hz and is heard as an out-of-tune
+/// instrument with a wobble. Five hundred tests and the promotion gate all
+/// passed it; a listener caught it in one note.
+///
+/// This is the missing term, as a guard. Near the fundamental there is room
+/// for exactly one partial, and everything else has to be far enough down
+/// that it cannot be a competing pitch.
+#[test]
+fn a_voice_rings_at_one_pitch_and_not_two() {
+    /// How close another partial may sit, in cents, before it stops being an
+    /// overtone and starts being a second note.
+    const NEIGHBOURHOOD_CENTS: f64 = 350.0;
+    /// And how far below the fundamental it has to stay if it sits there.
+    const HEADROOM_DB: f64 = 24.0;
+
+    let offenders = |profile: Profile, note: u8| -> Vec<(f64, f64)> {
+        let target = 440.0 * 2.0_f64.powf((f64::from(note) - 69.0) / 12.0);
+        let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+        voice.strike(0.85);
+        // Past the attack, where a second pitch would be heard as tuning.
+        for _ in 0..(48_000 * 4 * 3 / 10) {
+            voice.tick();
+        }
+        // Two seconds, windowed. A first attempt used a bare sum over one
+        // second and flagged the shipping profile's lowest note, which was
+        // its own spectral leakage and not a second pitch: without a window
+        // the skirt of a 41 Hz tone is still 6 dB down a quarter tone away.
+        const SECONDS: f64 = 2.0;
+        let taken = (48_000.0 * 4.0 * SECONDS) as usize;
+        let samples: Vec<f64> = (0..taken).map(|_| voice.tick()).collect();
+        let energy = |frequency: f64| {
+            let (mut re, mut im) = (0.0, 0.0);
+            for (i, value) in samples.iter().enumerate() {
+                let turn = i as f64 / samples.len() as f64;
+                let window = 0.5 - 0.5 * (std::f64::consts::TAU * turn).cos();
+                let phase =
+                    std::f64::consts::TAU * frequency * i as f64 / (48_000.0 * 4.0);
+                re += value * window * phase.cos();
+                im += value * window * phase.sin();
+            }
+            ((re * re + im * im).sqrt() / samples.len() as f64).max(1e-30)
+        };
+        let root = energy(target);
+        // What the analysis itself cannot resolve, it must not judge: a Hann
+        // window over this long spreads a pure tone across about three bins,
+        // so anything nearer than that is the fundamental seen twice.
+        let blind_hz = 3.0 / SECONDS;
+        let mut found = Vec::new();
+        let mut cents = -NEIGHBOURHOOD_CENTS;
+        while cents <= NEIGHBOURHOOD_CENTS {
+            let frequency = target * 2.0_f64.powf(cents / 1200.0);
+            if (frequency - target).abs() >= blind_hz {
+                let level = 20.0 * (energy(frequency) / root).log10();
+                if level > -HEADROOM_DB {
+                    found.push((cents, level));
+                }
+            }
+            cents += 12.5;
+        }
+        found
+    };
+
+    for profile in [
+        Profile::default(),
+        Profile::calibrated(),
+        Profile::calibrated_sustain(),
+    ] {
+        for note in [FIRST_NOTE, 40, 55, 76, LAST_NOTE] {
+            let found = offenders(profile, note);
+            assert!(
+                found.is_empty(),
+                "note {note} rings at more than one pitch: {found:?}"
+            );
+        }
+    }
+
+    // And the guard has to be able to fail, or it guards nothing. This is
+    // the whole fitted candidate a listener rejected on hearing -- not just
+    // its tonebar, because which normal mode leads, and therefore where the
+    // second pitch lands, depends on the entire configuration. At G3 it puts
+    // 205 Hz beside 196 Hz at -10.7 dB. See docs/WEDGE-POLE.md.
+    let two_pitched = Profile {
+        pickup_gap_m: 0.001377,
+        pickup_offset_m: 0.0006359,
+        pickup_transverse_offset_m: -0.0004375,
+        tine_boundary_angle_rad: 0.3250,
+        tine_transverse_frequency_ratio: 1.0434,
+        maximum_hammer_speed_m_s: 1.3250,
+        velocity_exponent: 1.1656,
+        tonebar_coupling: 0.5625,
+        tonebar_frequency_ratio: 1.4016,
+        pickup_pole_wedge: 1.0,
+        pickup_pole_radius_m: 0.0010625,
+        pickup_law: PickupLaw::Aperture,
+        ..Profile::calibrated()
+    };
+    let caught = offenders(two_pitched, 55);
+    assert!(
+        !caught.is_empty(),
+        "the guard did not catch the candidate a listener rejected"
+    );
+}
+
+/// The circuit law cannot invert, and cannot be made to.
+///
+/// The disc sums a source across the direction the tine travels, so its flux
+/// slope can turn over inside the playing range, and 390 µm out it does. The
+/// wedge removes that by collapsing the spread, but it had to be arranged and
+/// an orientation had to be assumed. A circuit cannot do it at all: flux is
+/// the magnet's drive over a reluctance that grows monotonically as the tine
+/// slides off the pole, so the slope has exactly one zero, at the axis, for
+/// every geometry there is.
+///
+/// This is the structural half of the prediction in docs/RELUCTANCE-PICKUP.md,
+/// and it is checked by exhausting the validated ranges rather than by
+/// sampling a few.
+#[test]
+fn the_circuit_law_has_one_zero_and_no_geometry_adds_another() {
+    use rf_tines_dsp::{ReluctancePickup, SpatialPickupProfile, reluctance_voltage};
+    // Wider than the bottom note's 1.83 mm swing, and past the pole's edge.
+    const REACH_M: f64 = 0.004;
+    let mut checked = 0;
+    for gap_mm in [0.5, 1.0, 1.588, 2.4, 3.175, 5.0] {
+        for offset_mm in [-1.0, -0.25, 0.0, 0.1, 0.5, 1.5] {
+            for width_mm in [0.2, 0.5, 1.0, 2.0, 3.0] {
+                for floor in [0.0, 0.25, 1.0, 4.0, 100.0] {
+                    let pickup = ReluctancePickup::new(
+                        SpatialPickupProfile {
+                            gap_m: gap_mm * 1e-3,
+                            offset_xy_m: [offset_mm * 1e-3, 0.0],
+                            pole_radius_m: width_mm * 1e-3,
+                            pole_wedge: 0.0,
+                            flux_scale_wb: 0.001,
+                        },
+                        floor,
+                    )
+                    .unwrap();
+                    let mut flips = 0;
+                    let mut previous = reluctance_voltage(&pickup, -REACH_M, 1.0);
+                    let mut step = -REACH_M;
+                    while step < REACH_M {
+                        step += 2e-6;
+                        let now = reluctance_voltage(&pickup, step, 1.0);
+                        assert!(now.is_finite(), "{gap_mm}/{offset_mm}/{width_mm}/{floor}");
+                        if now * previous < 0.0 {
+                            flips += 1;
+                        }
+                        previous = now;
+                    }
+                    assert_eq!(
+                        flips, 1,
+                        "gap {gap_mm} offset {offset_mm} width {width_mm} floor {floor} \
+                         crossed {flips} times"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(checked, 900);
+}
+

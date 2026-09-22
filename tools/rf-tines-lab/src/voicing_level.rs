@@ -94,7 +94,7 @@ pub fn run(args: &[String]) -> Result<(), Box<dyn Error>> {
                     }));
                 }
                 cells.push(json!({
-                    "law": match law { PickupLaw::Production => "production", PickupLaw::Aperture => "aperture", PickupLaw::RegisterAperture => "register-aperture" },
+                    "law": match law { PickupLaw::Production => "production", PickupLaw::Aperture => "aperture", PickupLaw::Reluctance => "reluctance", PickupLaw::RegisterAperture => "register-aperture" },
                     "gap_mm": gap, "offset_mm": offset,
                     "sensitivity": profile.pickup_sensitivity(), "level_compensation": compensation,
                     "notes": notes,

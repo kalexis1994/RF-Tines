@@ -1,4 +1,7 @@
-use crate::laboratory::{AxialAperture, PlanarAperture, aperture_voltage, planar_voltage};
+use crate::laboratory::{
+    AxialAperture, PlanarAperture, ReluctancePickup, aperture_voltage, planar_voltage,
+    reluctance_voltage,
+};
 use crate::{FIRST_NOTE, LAST_NOTE, MagneticPickup, ModelError, OVERSAMPLE, Profile};
 use core::f64::consts::TAU;
 
@@ -118,6 +121,7 @@ pub struct Voice {
     pickup: MagneticPickup,
     aperture: Option<AxialAperture>,
     planar: Option<PlanarAperture>,
+    circuit: Option<ReluctancePickup>,
     pitch_ratio: f64,
     dt: f64,
     contact_steps: usize,
@@ -214,6 +218,7 @@ impl Voice {
             pickup: MagneticPickup::from_validated_profile(profile),
             aperture: profile.aperture(),
             planar: profile.planar_aperture(),
+            circuit: profile.reluctance(),
             pitch_ratio: 1.0,
             dt,
             contact_steps,
@@ -255,6 +260,7 @@ impl Voice {
         self.pickup = MagneticPickup::from_validated_profile(profile);
         self.aperture = profile.aperture();
         self.planar = profile.planar_aperture();
+        self.circuit = profile.reluctance();
         self.profile = profile;
     }
 
@@ -346,10 +352,14 @@ impl Voice {
         // Output follows -dPhi/dt, not displacement and not a post-mix clipper.
         // A tip that has left the axis changes the flux through both of its
         // coordinates, so both terms of the chain rule are kept.
-        self.signal = match (&self.aperture, &self.planar) {
-            (Some(aperture), _) => aperture_voltage(aperture, position[0], velocity[0]),
-            (None, Some(planar)) => planar_voltage(planar, position, velocity),
-            (None, None) => self.pickup.voltage(position[0], velocity[0]),
+        self.signal = match (&self.circuit, &self.aperture, &self.planar) {
+            // The circuit law is one coordinate: the tine changes the path's
+            // reluctance by how far it has slid off the pole, and the
+            // transverse coordinate is not part of that path yet.
+            (Some(circuit), _, _) => reluctance_voltage(circuit, position[0], velocity[0]),
+            (None, Some(aperture), _) => aperture_voltage(aperture, position[0], velocity[0]),
+            (None, None, Some(planar)) => planar_voltage(planar, position, velocity),
+            (None, None, None) => self.pickup.voltage(position[0], velocity[0]),
         };
         if !self.contact && self.modes.iter().map(Mode::energy).sum::<f64>() < 1e-18 {
             self.reset();

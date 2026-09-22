@@ -1,4 +1,7 @@
-use crate::laboratory::{AxialAperture, PlanarAperture, aperture_voltage, planar_voltage};
+use crate::laboratory::{
+    AxialAperture, PlanarAperture, ReluctancePickup, aperture_voltage, planar_voltage,
+    reluctance_voltage,
+};
 use crate::{MagneticPickup, SpatialPickupProfile};
 use core::f64::consts::TAU;
 use core::fmt;
@@ -26,6 +29,10 @@ pub enum PickupLaw {
     Aperture,
     /// Aperture with the frozen upper-register geometry adjustment.
     RegisterAperture,
+    /// The magnetic circuit: flux is the magnet's drive over the reluctance
+    /// the moving tine changes, rather than a field a probe reads. See
+    /// docs/RELUCTANCE-PICKUP.md.
+    Reluctance,
 }
 
 /// Reference tip motion for level compensation: a sine of this amplitude at
@@ -106,6 +113,11 @@ pub struct Profile {
     /// Zero is the circular face every geometry used before this one. See
     /// docs/WEDGE-POLE.md.
     pub pickup_pole_wedge: f64,
+    /// The share of the magnetic circuit that is iron and does not move,
+    /// relative to the air path at rest. Only the reluctance law reads it.
+    /// It is what bounds sensitivity as the gap closes, so nonlinearity no
+    /// longer has to be bought at a gap the manufacturer forbids.
+    pub pickup_circuit_floor: f64,
 }
 
 impl Default for Profile {
@@ -139,6 +151,7 @@ impl Default for Profile {
             tonebar_mass_ratio: 8.0,
             tonebar_decay_seconds: 4.0,
             pickup_pole_wedge: 0.0,
+            pickup_circuit_floor: 1.0,
         }
     }
 }
@@ -235,6 +248,14 @@ impl Profile {
         })
     }
 
+    /// The magnetic circuit, when the profile asks for it.
+    pub(crate) fn reluctance(&self) -> Option<ReluctancePickup> {
+        (self.pickup_law == PickupLaw::Reluctance).then(|| {
+            ReluctancePickup::new(self.spatial_pickup(), self.pickup_circuit_floor)
+                .expect("validated circuit geometry")
+        })
+    }
+
     /// The same flux kept in two dimensions, for a tip that traces an ellipse.
     pub(crate) fn planar_aperture(&self) -> Option<PlanarAperture> {
         (matches!(
@@ -255,16 +276,18 @@ impl Profile {
         // production law here would be compensated to the wrong level.
         let aperture = self.aperture();
         let planar = self.planar_aperture();
+        let circuit = self.reluctance();
         let omega = TAU * LEVEL_REFERENCE_FREQUENCY_HZ;
         let mut sum = 0.0;
         for i in 0..LEVEL_REFERENCE_SAMPLES {
             let phase = TAU * i as f64 / LEVEL_REFERENCE_SAMPLES as f64;
             let x = LEVEL_REFERENCE_AMPLITUDE_M * phase.sin();
             let v = LEVEL_REFERENCE_AMPLITUDE_M * omega * phase.cos();
-            let voltage = match (&aperture, &planar) {
-                (Some(aperture), _) => aperture_voltage(aperture, x, v),
-                (None, Some(planar)) => planar_voltage(planar, [x, 0.0], [v, 0.0]),
-                (None, None) => pickup.voltage(x, v),
+            let voltage = match (&circuit, &aperture, &planar) {
+                (Some(circuit), _, _) => reluctance_voltage(circuit, x, v),
+                (None, Some(aperture), _) => aperture_voltage(aperture, x, v),
+                (None, None, Some(planar)) => planar_voltage(planar, [x, 0.0], [v, 0.0]),
+                (None, None, None) => pickup.voltage(x, v),
             };
             sum += voltage * voltage;
         }
@@ -410,6 +433,12 @@ impl Profile {
                 0.0,
                 1.0,
                 "pickup pole wedge outside 0..1",
+            ),
+            (
+                self.pickup_circuit_floor,
+                0.0,
+                100.0,
+                "pickup circuit floor outside 0..100",
             ),
         ] {
             if !value.is_finite() || !(minimum..=maximum).contains(&value) {

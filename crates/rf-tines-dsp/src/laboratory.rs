@@ -165,6 +165,87 @@ pub fn planar_voltage(
         / APERTURE_PICKUP.flux_scale_wb
 }
 
+/// The pickup as a magnetic circuit rather than as a field a probe reads.
+///
+/// A steel tine is not a probe: it is high-permeability material moving
+/// inside the magnet's circuit, and what the coil sees is the circuit's
+/// reluctance changing. Flux is the magnet's magnetomotive force over that
+/// reluctance,
+///
+/// ```text
+/// Phi(u) = 1 / (floor + r(u)),  r(u) = sqrt(1 + (u/gap)^2) (1 + (u/width)^2)
+/// ```
+///
+/// where the first factor is the air path lengthening as the tine slides off
+/// the pole axis and the second is their overlap shrinking once it passes the
+/// pole's edge. `floor` is the part of the circuit that is iron and does not
+/// move.
+///
+/// Three things follow by construction rather than by fitting, and each is a
+/// defect of the dipole laws beside it. `Phi` falls monotonically with `|u|`,
+/// so its slope has exactly one zero, at the axis, and cannot invert inside
+/// the playing range. `floor` bounds the sensitivity as the gap closes, so
+/// nonlinearity no longer has to be bought at a gap the manufacturer forbids.
+/// And the circuit saturates as the tine approaches. See
+/// docs/RELUCTANCE-PICKUP.md.
+pub struct ReluctancePickup {
+    gap_m: f64,
+    offset_m: f64,
+    width_m: f64,
+    floor: f64,
+}
+
+impl ReluctancePickup {
+    pub fn new(p: SpatialPickupProfile, floor: f64) -> Result<Self, ModelError> {
+        p.validate()?;
+        if !floor.is_finite() || !(0.0..=100.0).contains(&floor) {
+            return Err(ModelError("reluctance circuit floor outside 0..100"));
+        }
+        Ok(Self {
+            gap_m: p.gap_m,
+            offset_m: p.offset_xy_m[0],
+            // The pole's half-width; a disc's radius is the same distance.
+            width_m: p.pole_radius_m.max(1e-6),
+            floor,
+        })
+    }
+
+    /// Reluctance of the path, and how fast it changes, at one position.
+    fn path(&self, u: f64) -> (f64, f64) {
+        let (over_gap, over_width) = (u / self.gap_m, u / self.width_m);
+        let stretch = (1.0 + over_gap * over_gap).sqrt();
+        let overlap = 1.0 + over_width * over_width;
+        let stretch_slope = over_gap / (self.gap_m * stretch);
+        let overlap_slope = 2.0 * u / (self.width_m * self.width_m);
+        (
+            stretch * overlap,
+            stretch_slope * overlap + stretch * overlap_slope,
+        )
+    }
+
+    /// Flux slope, in the same normalised units the other laws report, so the
+    /// engine's level compensation sees one scale across all of them.
+    pub fn slope_wb_per_m(&self, displacement_m: f64) -> f64 {
+        if !(-0.05..=0.05).contains(&displacement_m) {
+            return f64::NAN;
+        }
+        let u = displacement_m + self.offset_m;
+        let (reluctance, change) = self.path(u);
+        let total = self.floor + reluctance;
+        -APERTURE_PICKUP.flux_scale_wb * change / (total * total)
+    }
+}
+
+/// The circuit law's voltage: the same `-0.015 dPhi/dt` the others report.
+pub fn reluctance_voltage(
+    pickup: &ReluctancePickup,
+    displacement_m: f64,
+    velocity_m_s: f64,
+) -> f64 {
+    -0.015 * pickup.slope_wb_per_m(displacement_m) * velocity_m_s
+        / APERTURE_PICKUP.flux_scale_wb
+}
+
 pub(crate) struct Laboratory {
     pub pickup: MagneticPickup,
     pub aperture: AxialAperture,

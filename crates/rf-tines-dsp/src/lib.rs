@@ -28,7 +28,7 @@ pub use filter::Decimator as ProductionDecimator;
 pub use hammer_memory::{HammerMemory, HammerMemoryProbe, HammerMemoryProfile};
 pub use laboratory::{
     APERTURE_PICKUP, AxialAperture, PICKUP_LEVEL_MATCH, PICKUP_NAMES, PlanarAperture,
-    aperture_voltage, planar_voltage,
+    ReluctancePickup, aperture_voltage, planar_voltage, reluctance_voltage,
 };
 pub use memory_hammer::{
     MemoryHammer, MemoryHammerContactStatus, MemoryHammerContactStep, MemoryHammerProbe,
