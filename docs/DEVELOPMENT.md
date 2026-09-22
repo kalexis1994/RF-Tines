@@ -130,6 +130,28 @@ cargo run --locked --release -p rf-tines-lab -- converge --output renders/treble
 
 The command compares fixed 4/8/16/32x integration and the production contact-refined voice against a finite 64x reference. It uses a common offline filter and writes mechanical, attack and full-window errors without automatic alignment. See [Numerical convergence](CONVERGENCE.md). Duration is limited to 0.05–1 second and velocity to 0.01–1 so the experiment stays bounded and above negligible excitation.
 
+## The lock file belongs to the pinned host, not to yours
+
+`Cargo.lock` records the version of every path dependency, and the RackForge
+crates are path dependencies. CI checks the host out at the commit
+`.github/workflows/*.yml` pins and builds with `--locked`, so the committed
+lock has to carry *that* host's version. A sibling checkout of RackForge that
+has moved on will differ.
+
+This is a trap, because it fails quietly in the direction that matters.
+Running `cargo update` against a newer sibling rewrites the lock to the newer
+version, every local `--locked` command keeps passing, and CI fails with
+"cannot update the lock file ... because --locked was passed". It happened
+once: the lock went from 0.1.20 to 0.1.23 while fixing an unrelated version
+skew, and the push failed on all three CI jobs.
+
+To regenerate the lock, point the two path dependencies at a worktree of the
+pinned commit, run `cargo update -w --offline`, then restore the paths. Only
+`Cargo.lock` should change. The consequence is that `--locked` will then fail
+against a newer local host, which is correct: the pinned host is what is
+supported, and that failure is the check working rather than a problem to fix
+by updating the lock.
+
 ## Package
 
 For the complete build/install/launch cycle, use `cargo run --locked --release -p rf-tines-lab -- audition`. See [Desktop audition](AUDITION.md) for the dedicated library, settings retention and repeat-run behavior. The standalone `package` command below remains useful for producing a versioned release archive without launching a host.
