@@ -159,3 +159,41 @@ physically real, it is the mechanism a later support coordinate would build
 on, and it is free: 73 voices at 128 frames measure p99 1.804 ms against
 1.840 ms before it, with the same six deadline misses out of 1125 blocks. What
 it is not is an improvement to the model's accuracy, and no preset claims one.
+
+## The experiment that should have come first
+
+Two builds were spent finding out that two resonator hypotheses do not help.
+Both could have been ruled out in an afternoon by asking the question one
+level up, so that is what was done before starting a third: **is there any
+transducer at all that would do?**
+
+The pickup has no back-action on the tine, so the mechanics can be rendered
+once and the transducer swept over it for nothing. Whatever the pole looks
+like, it turns tip motion into `-g(x) v` for a single function `g` of
+displacement. Fitting `g` freely — a piecewise-linear curve over the swing the
+whole keyboard reaches, with no physics imposed on it — bounds what every
+possible pole can reach. `transducer_ceiling` does that.
+
+| | MSE dB² on the training notes |
+| --- | ---: |
+| Second motion coordinate, best legal geometry | 226.77 |
+| Tonebar, best of fifty settings | 226.34 |
+| **Shipping geometry, the illegal one** | **181.86** |
+| The shipping curve resampled at the probe's knots | 155.82 |
+| **A freely shaped transduction curve** | **98.03** |
+
+The transducer has roughly **46% of headroom** where both resonators had
+none. That is the direction.
+
+Two things have to be said against it. The probe reproduces its control point
+to −14.3%, not exactly: fifteen knots 286 µm apart interpolate the real curve
+coarsely, and that coarseness is itself worth 14% — which is its own finding,
+because smoothing the disc pole's sign inversion helps. And the curve the
+search lands on changes sign five times across the swing, which no magnet
+produces. So 98.03 bounds *memoryless transducers*, not *physical poles*, and
+a wedge will land somewhere between it and 181.86.
+
+What the number does establish is that the content the model is missing is
+reachable through the transduction and is not reachable through the
+resonator. The sources said so; it took two builds and this probe to believe
+them.
