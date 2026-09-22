@@ -545,7 +545,21 @@ impl Settings {
             },
             pickup_gap_m: self.distance_mm * 1e-3,
             pickup_offset_m: self.alignment_mm * 1e-3,
-            contact_stiffness: 4.0e10 * 25.0_f64.powf(2.0 * self.hardness - 1.0),
+            // Centred on a contact the literature recognises rather than on
+            // a number. Half a turn is 4e8, which holds the hammer on the
+            // tine for 547 us, and the ends stay inside the 0.3 to 4 ms a
+            // piano hammer is measured at. The old centre was 4e10 and
+            // 116 us, three times shorter than anything reported, and a
+            // listener heard it as a short tick the real instrument does not
+            // have. The whole former range was too stiff: even its softest
+            // setting was four times harder than the value that scores best.
+            //
+            // The span is 12 and not 25 because the cube-root rule that
+            // relates stiffness to contact time holds in the middle and not
+            // at the soft end, where the hammer barely rebounds: a span of
+            // 25 measured 4.2 ms at the softest setting against the 1.6 it
+            // predicted, and the test below caught it.
+            contact_stiffness: 4.0e8 * 12.0_f64.powf(2.0 * self.hardness - 1.0),
             decay_seconds: 5.0 * 16.0_f64.powf(self.sustain),
             bar_partial_decay_seconds: (0.16 * 14.375_f64.powf(2.0 * self.sustain)).min(10.0),
             bar_partial_strike_weight: -0.3 * self.bell * self.bell,

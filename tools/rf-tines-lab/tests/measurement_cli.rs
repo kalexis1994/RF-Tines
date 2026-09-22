@@ -397,7 +397,9 @@ fn render_bar_partial_options_reach_the_profile_and_default_to_the_retained_engi
     }
     let report = scratch.json("default.json");
     assert_eq!(report["bar_partial_ratio"], 6.267);
-    assert_eq!(report["contact_stiffness"], 4.0e10);
+    // The profile default moved from 4e10 to 4e8, which is 116 us of hammer
+    // contact against 547: see docs/WHAT-A-LISTENER-HEARD.md.
+    assert_eq!(report["contact_stiffness"], 4.0e8);
     assert_eq!(report["bar_partial_strike_weight"], -0.3);
     assert_eq!(scratch.json("tuned.json")["bar_partial_ratio"], 6.0);
     assert_eq!(scratch.json("soft.json")["contact_stiffness"], 4.0e9);
@@ -413,7 +415,7 @@ fn render_bar_partial_options_reach_the_profile_and_default_to_the_retained_engi
         vec!["--bar-ratio", "1.5"],
         vec!["--bar-ratio", "13"],
         vec!["--bar-ratio", "x"],
-        vec!["--contact-stiffness", "1e7"],
+        vec!["--contact-stiffness", "1e6"],
         vec!["--contact-stiffness", "nan"],
         vec!["--contact-stiffness"],
         vec!["--bar-strike", "1.5"],

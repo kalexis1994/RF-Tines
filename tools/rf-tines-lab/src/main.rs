@@ -76,7 +76,7 @@ Render options:
                     the retained recordings, 20 s / 2.3 s at A3
   --bar-ratio R     Second partial over the fundamental, 2..12 (default 6.267;
                     the recordings show 6.0)
-  --contact-stiffness K  Quadratic contact law coefficient, 1e8..1e12 N/m^2
+  --contact-stiffness K  Quadratic contact law coefficient, 1e7..1e12 N/m^2
                     (default 4e10)
   --bar-strike W    Second partial strike weight, -1..1 (default -0.3)
   --law L           Pickup law: production (default) or aperture

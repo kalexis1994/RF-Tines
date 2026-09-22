@@ -48,6 +48,12 @@ pub struct Profile {
     pub hammer_mass_kg: f64,
     pub modal_mass_kg: f64,
     /// F = stiffness * compression^2; units N/m^2.
+    ///
+    /// The quantity with a literature to check against is not this but how
+    /// long it keeps the hammer on the tine, which goes as its cube root.
+    /// Piano hammers are measured in contact for 0.3 to 4 ms; 4e8 holds for
+    /// 547 us and 4e10, which this model used to default to, for 116 us.
+    /// See docs/WHAT-A-LISTENER-HEARD.md.
     pub contact_stiffness: f64,
     pub maximum_hammer_speed_m_s: f64,
     pub pickup_gap_m: f64,
@@ -125,7 +131,13 @@ impl Default for Profile {
         Self {
             hammer_mass_kg: 0.004,
             modal_mass_kg: 0.0015,
-            contact_stiffness: 4.0e10,
+            // 4e8 holds the hammer on the tine for 547 us, inside the 0.3
+            // to 4 ms a real hammer is measured at. This was 4e10 and 116 us
+            // until a listener heard the difference as a tick the real
+            // instrument does not have; see docs/WHAT-A-LISTENER-HEARD.md.
+            // Every figure recorded against a baseline before that change
+            // was measured at 4e10 and does not reproduce from here.
+            contact_stiffness: 4.0e8,
             maximum_hammer_speed_m_s: 0.8,
             pickup_gap_m: 0.0015,
             pickup_offset_m: 0.0005,
@@ -322,9 +334,9 @@ impl Profile {
             ),
             (
                 self.contact_stiffness,
-                1.0e8,
+                1.0e7,
                 1.0e12,
-                "contact stiffness outside 1e8..1e12 N/m^2",
+                "contact stiffness outside 1e7..1e12 N/m^2",
             ),
             (
                 self.maximum_hammer_speed_m_s,
