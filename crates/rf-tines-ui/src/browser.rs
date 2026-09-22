@@ -72,7 +72,7 @@ fn section_events(document: &Document) -> Result<(), JsValue> {
 }
 
 /// Sound-page controls: element id, parameter index, displayed decimals, unit.
-const CONTROLS: [(&str, usize, usize, &str); 14] = [
+const CONTROLS: [(&str, usize, usize, &str); 18] = [
     ("law", 1, 0, ""),
     ("distance", 2, 2, " mm"),
     ("alignment", 3, 2, " mm"),
@@ -87,6 +87,11 @@ const CONTROLS: [(&str, usize, usize, &str); 14] = [
     ("intensity", 12, 3, ""),
     ("preamp", 13, 0, ""),
     ("bass-boost", 14, 3, ""),
+    // The Hammer page section already owns id="hammer".
+    ("hammer-mass", 15, 3, ""),
+    ("tine", 16, 3, ""),
+    ("pole", 17, 3, ""),
+    ("twist", 18, 3, ""),
 ];
 
 impl App {
@@ -104,7 +109,7 @@ impl App {
         let stage = self.client.display(13) == 0.0;
         for (id, hidden) in [
             ("stage-controls", !stage),
-            ("suitcase-controls", stage),
+            ("console-controls", stage),
             ("vibrato-control", stage),
         ] {
             let element = self.element(id);
@@ -141,7 +146,7 @@ impl App {
                 self.text(
                     &format!("{id}-value"),
                     if id == "preamp" {
-                        if value == 0.0 { "Stage" } else { "Suitcase" }
+                        if value == 0.0 { "Passive" } else { "Console" }
                     } else if id == "vibrato" {
                         if value == 0.0 { "Off" } else { "On" }
                     } else if value == 2.0 {

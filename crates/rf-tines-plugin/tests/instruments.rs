@@ -86,8 +86,14 @@ fn instrument_programs_have_distinct_physics_and_bounded_dense_chords() {
             let x = factory[a].3;
             let y = factory[b].3;
             assert_ne!(
-                [x.hardness, x.sustain, x.bell, x.distance_mm, x.alignment_mm],
-                [y.hardness, y.sustain, y.bell, y.distance_mm, y.alignment_mm]
+                [
+                    x.hardness, x.sustain, x.bell, x.distance_mm, x.alignment_mm,
+                    x.hammer, x.tine, x.pole, x.twist
+                ],
+                [
+                    y.hardness, y.sustain, y.bell, y.distance_mm, y.alignment_mm,
+                    y.hammer, y.tine, y.pole, y.twist
+                ]
             );
         }
         let (id, _, _, settings) = factory[a];
@@ -119,4 +125,189 @@ fn instrument_programs_have_distinct_physics_and_bounded_dense_chords() {
         assert!(peak > 0.001 && peak < 1.0, "{id}: {peak}");
         assert_eq!(stereo, settings.preamp == 1.0 && settings.vibrato == 1.0);
     }
+}
+
+/// Every instrument preset has to be a different sound, not a different set
+/// of numbers.
+///
+/// The five decade presets these replaced failed that: the controls they
+/// varied to tell the eras apart -- tip hardness above all -- move the
+/// spectrum by well under a decibel over the spans they used, so the eras
+/// were mostly a label. Measured on the physics alone, the instruments here
+/// separate by 2.4 to 5.9 dB, with three pairs closer.
+///
+/// Two of those three are the same piano twice, a Stage and the Suitcase of
+/// the same years, and they are meant to share a mechanism: what separates
+/// them is the preamp and its stereo vibrato. That is worth pinning, because
+/// it is the only thing keeping them apart.
+#[test]
+fn a_suitcase_does_not_sound_like_the_stage_it_shares_a_mechanism_with() {
+    let capture = |id: &str| {
+        let mut plugin = RfTinesProcessor::default();
+        assert!(plugin.load_preset(id), "{id}");
+        assert!(plugin.prepare(48_000.0, 256, 0, 2));
+        let note = [MidiEvent {
+            frame: 0,
+            data: [0x90, 55, 100],
+            length: 3,
+        }];
+        let mut left = Vec::new();
+        let mut right = Vec::new();
+        for block in 0..80 {
+            let mut audio = [0.0_f32; 512];
+            let events: &[MidiEvent] = if block == 0 { &note } else { &[] };
+            plugin.process(&[], &mut audio, events, &[], 256, 0, 2);
+            for pair in audio.as_chunks::<2>().0 {
+                left.push(pair[0]);
+                right.push(pair[1]);
+            }
+        }
+        (left, right)
+    };
+
+    for (stage, suitcase) in [
+        ("portable-bark-1972", "console-bark-1973"),
+        ("portable-bell-1977", "console-bell-1978"),
+    ] {
+        let (dry, dry_right) = capture(stage);
+        let (wet, wet_right) = capture(suitcase);
+        let reach = dry.iter().fold(0.0_f32, |m, x| m.max(x.abs()));
+        assert!(reach > 1e-3, "{stage} barely sounded");
+
+        // The Stage is passive and mono; the Suitcase swings its output
+        // between two speakers, so its channels must part company.
+        let stage_spread = dry
+            .iter()
+            .zip(&dry_right)
+            .fold(0.0_f32, |m, (l, r)| m.max((l - r).abs()));
+        let suitcase_spread = wet
+            .iter()
+            .zip(&wet_right)
+            .fold(0.0_f32, |m, (l, r)| m.max((l - r).abs()));
+        assert!(stage_spread <= 1e-6, "{stage} is not mono: {stage_spread}");
+        assert!(
+            suitcase_spread > 0.1 * reach,
+            "{suitcase} has no stereo movement: {suitcase_spread}"
+        );
+
+        // And the preamp's own tone shaping has to be audible before the
+        // vibrato is taken into account, so compare the two channels summed.
+        let apart = dry
+            .iter()
+            .zip(&dry_right)
+            .zip(wet.iter().zip(&wet_right))
+            .fold(0.0_f32, |m, ((a, b), (c, d))| m.max(((a + b) - (c + d)).abs()));
+        assert!(
+            apart > 0.05 * reach,
+            "{stage} and {suitcase} came out the same: {apart} against {reach}"
+        );
+    }
+}
+
+/// A preset has to be a different sound, and this is the test the earlier
+/// ones never had.
+///
+/// Five decade presets shipped once whose whole claim was that they were
+/// different instruments; measured, they differed by well under a decibel in
+/// the places their descriptions pointed at, because the controls that were
+/// varied could not reach the physics. Nothing caught it, because nothing
+/// measured what came out.
+///
+/// So this measures what comes out. Each advertised preset is rendered
+/// through the plugin -- the whole path, level compensation, register
+/// geometry and panel electronics included -- and reduced to a coarse
+/// log-spaced colour, normalised to its own peak so a loudness difference is
+/// not counted as a timbre difference. Every pair must part company, except
+/// the two that are one instrument heard through two amplifiers.
+#[test]
+fn every_advertised_preset_is_audibly_its_own_instrument() {
+    const RATE: f64 = 48_000.0;
+    const FRAMES: u32 = 256;
+    const ADVERTISED: [&str; 8] = [
+        "portable-bark-1972",
+        "tine-bass-1960",
+        "felt-1966",
+        "console-bark-1973",
+        "portable-bell-1977",
+        "console-bell-1978",
+        "portable-chime-1980",
+        "wide-dynamics-1984",
+    ];
+    /// One piano, two amplifiers. The electronics separate these, and
+    /// `a_suitcase_does_not_sound_like_the_stage_it_shares_a_mechanism_with`
+    /// is what holds them apart.
+    const SHARE_A_MECHANISM: [(&str, &str); 2] = [
+        ("portable-bark-1972", "console-bark-1973"),
+        ("portable-bell-1977", "console-bell-1978"),
+    ];
+
+    let colour = |id: &str| {
+        let mut plugin = RfTinesProcessor::default();
+        assert!(plugin.load_preset(id), "{id}");
+        assert!(plugin.prepare(RATE, FRAMES, 0, 2));
+        let note = [MidiEvent {
+            frame: 0,
+            data: [0x90, 55, 108],
+            length: 3,
+        }];
+        let mut mono = Vec::new();
+        for block in 0..160 {
+            let mut audio = [0.0_f32; 512];
+            let events: &[MidiEvent] = if block == 0 { &note } else { &[] };
+            plugin.process(&[], &mut audio, events, &[], FRAMES, 0, 2);
+            mono.extend(
+                audio
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| f64::from(pair[0]) + f64::from(pair[1])),
+            );
+        }
+        assert!(mono.iter().any(|x| x.abs() > 1e-4), "{id} was silent");
+        // Four probes per octave from 80 Hz, over the first second.
+        let block = &mono[..mono.len().min(RATE as usize)];
+        let mut bands: Vec<f64> = (0..29)
+            .map(|step| {
+                let frequency = 80.0 * 2.0_f64.powf(step as f64 / 4.0);
+                let (mut re, mut im) = (0.0, 0.0);
+                for (i, value) in block.iter().enumerate() {
+                    let phase = std::f64::consts::TAU * frequency * i as f64 / RATE;
+                    re += value * phase.cos();
+                    im += value * phase.sin();
+                }
+                (re * re + im * im).sqrt() / block.len() as f64
+            })
+            .collect();
+        let peak = bands.iter().fold(0.0_f64, |m, x| m.max(*x)).max(1e-30);
+        for value in &mut bands {
+            *value = 20.0 * (*value / peak).max(1e-5).log10();
+        }
+        bands
+    };
+
+    let prints: Vec<(&str, Vec<f64>)> = ADVERTISED.iter().map(|id| (*id, colour(id))).collect();
+    let mut spread = Vec::new();
+    for (index, (a, left)) in prints.iter().enumerate() {
+        for (b, right) in &prints[index + 1..] {
+            if SHARE_A_MECHANISM.contains(&(a, b)) || SHARE_A_MECHANISM.contains(&(b, a)) {
+                continue;
+            }
+            let apart = (left
+                .iter()
+                .zip(right)
+                .map(|(x, y)| (x - y) * (x - y))
+                .sum::<f64>()
+                / left.len() as f64)
+                .sqrt();
+            assert!(apart > 2.0, "{a} and {b} are the same sound: {apart:.2} dB");
+            spread.push(apart);
+        }
+    }
+    // Pair by pair is not enough on its own: a later edit could walk every
+    // preset towards the middle and still have each pair scrape past the
+    // floor. The set has to stay spread out as a whole. The measured mean is
+    // around 6 dB; this floor is well under it, so it catches a collapse
+    // rather than fencing in the current numbers.
+    let mean = spread.iter().sum::<f64>() / spread.len() as f64;
+    assert!(mean > 4.0, "the set has flattened to a mean of {mean:.2} dB");
 }

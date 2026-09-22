@@ -30,7 +30,7 @@ const TRAINING_NOTES: [u8; 9] = [30, 38, 50, 55, 59, 67, 76, 88, 98];
 /// What the shipping voicing scores on these same cases, from the probe.
 const SHIPPING: f64 = 181.86;
 
-const NAMES: [&str; 8] = [
+const NAMES: [&str; 10] = [
     "hueco grave mm",
     "hueco agudo mm",
     "despl mm",
@@ -39,6 +39,8 @@ const NAMES: [&str; 8] = [
     "razon ejes",
     "martillo m/s",
     "exponente",
+    "union tonebar",
+    "razon tonebar",
 ];
 
 /// The manual gives the bass a floor of 1/16 in and a ceiling of 1/8 in, and
@@ -46,7 +48,7 @@ const NAMES: [&str; 8] = [
 /// across the keyboard rather than held fixed. The offset stays small because
 /// the manual rests the tine slightly above dead centre, not a whole gap off
 /// it. Everything here is inside what the factory permits.
-const BOUNDS: [(f64, f64); 8] = [
+const BOUNDS: [(f64, f64); 10] = [
     (1.588, 3.175),
     (0.508, 3.175),
     (0.05, 1.0),
@@ -55,15 +57,20 @@ const BOUNDS: [(f64, f64); 8] = [
     (1.0, 1.15),
     (0.2, 1.6),
     (0.5, 3.0),
+    // The second prong: how hard it is joined, and where it sits. The paper
+    // measures the prongs several hundred to more than 1400 cents apart,
+    // which is the range the ratio is held to.
+    (0.0, 3.0),
+    (1.19, 2.24),
 ];
 
 /// Three starts, because one coarse descent is not evidence that a hypothesis
 /// is dead. The first holds the manual's floor throughout, the second grades
 /// the treble closed, the third opens the bass wide and turns the axes.
-const STARTS: [[f64; 8]; 3] = [
-    [1.588, 1.588, 0.25, 0.0, 0.3, 1.02, 0.8, 1.4],
-    [1.588, 0.508, 0.5, 0.0, 0.3, 1.02, 0.8, 1.4],
-    [3.175, 1.0, 0.25, 0.3, 0.5, 1.05, 1.0, 1.4],
+const STARTS: [[f64; 10]; 3] = [
+    [1.588, 1.588, 0.25, 0.0, 0.3, 1.02, 0.8, 1.4, 0.0, 1.5],
+    [1.588, 0.508, 0.5, 0.0, 0.3, 1.02, 0.8, 1.4, 0.6, 1.3],
+    [3.175, 1.0, 0.25, 0.3, 0.5, 1.05, 1.0, 1.4, 1.5, 2.0],
 ];
 
 /// Gap interpolated smoothly across the keyboard between the two ends.
@@ -73,7 +80,7 @@ fn register_gap_m(note: u8, bass_mm: f64, treble_mm: f64) -> f64 {
     (bass_mm * (1.0 - w) + treble_mm * w) * 1e-3
 }
 
-fn profile(x: [f64; 8], note: u8) -> Profile {
+fn profile(x: [f64; 10], note: u8) -> Profile {
     Profile {
         pickup_gap_m: register_gap_m(note, x[0], x[1]),
         pickup_offset_m: x[2] * 1e-3,
@@ -82,6 +89,8 @@ fn profile(x: [f64; 8], note: u8) -> Profile {
         tine_transverse_frequency_ratio: x[5],
         maximum_hammer_speed_m_s: x[6],
         velocity_exponent: x[7],
+        tonebar_coupling: x[8],
+        tonebar_frequency_ratio: x[9],
         ..baseline()
     }
 }
@@ -90,7 +99,7 @@ fn profile(x: [f64; 8], note: u8) -> Profile {
 /// box a geometry can render so quietly that the onset detector finds nothing
 /// to measure; that is a rejection, not a crash, so it scores as unusable and
 /// the search walks on.
-fn score(cases: &[Case], x: [f64; 8]) -> f64 {
+fn score(cases: &[Case], x: [f64; 10]) -> f64 {
     match score_with(cases, baseline(), false, |c, _, seconds| {
         render(c, profile(x, c.note), seconds)
     }) {
@@ -118,7 +127,7 @@ fn main() -> Result<()> {
         // searches used. No reserved note steers anything.
         for round in 0..4 {
             let fraction = 0.5_f64.powi(round);
-            for dim in 0..8 {
+            for dim in 0..10 {
                 let step = (BOUNDS[dim].1 - BOUNDS[dim].0) * 0.25 * fraction;
                 for sign in [-1.0, 1.0] {
                     let mut trial = here;

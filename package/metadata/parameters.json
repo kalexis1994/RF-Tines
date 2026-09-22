@@ -89,7 +89,7 @@
         "type": "float",
         "minimum": 0.5,
         "maximum": 3.0,
-        "default": 0.75,
+        "default": 0.6,
         "step": 0.01,
         "unit": "mm"
       },
@@ -108,7 +108,7 @@
         "type": "float",
         "minimum": -1.0,
         "maximum": 1.5,
-        "default": 0.48,
+        "default": 0.45,
         "step": 0.01,
         "unit": "mm"
       },
@@ -127,7 +127,7 @@
         "type": "float",
         "minimum": 0.0,
         "maximum": 1.0,
-        "default": 0.42,
+        "default": 0.45,
         "step": 0.001
       },
       "flags": {
@@ -145,7 +145,7 @@
         "type": "float",
         "minimum": 0.0,
         "maximum": 1.0,
-        "default": 0.48,
+        "default": 0.5,
         "step": 0.001
       },
       "flags": {
@@ -163,7 +163,7 @@
         "type": "float",
         "minimum": 0.0,
         "maximum": 1.0,
-        "default": 0.22,
+        "default": 0.26,
         "step": 0.001
       },
       "flags": {
@@ -302,11 +302,11 @@
         "choices": [
           {
             "value": 0,
-            "name": "Stage"
+            "name": "Passive"
           },
           {
             "value": 1,
-            "name": "Suitcase"
+            "name": "Console"
           }
         ]
       },
@@ -325,9 +325,81 @@
         "type": "float",
         "minimum": 0,
         "maximum": 1,
-        "default": 0.9,
+        "default": 0.85,
         "step": 0.001,
         "unit": ""
+      },
+      "flags": {
+        "automatable": true
+      },
+      "suggested_control": "knob"
+    },
+    {
+      "index": 15,
+      "id": "hammer",
+      "name": "Hammer Mass",
+      "page": "hammer",
+      "order": 1,
+      "kind": {
+        "type": "float",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.46,
+        "step": 0.001
+      },
+      "flags": {
+        "automatable": true
+      },
+      "suggested_control": "knob"
+    },
+    {
+      "index": 16,
+      "id": "tine",
+      "name": "Tine Mass",
+      "page": "resonator",
+      "order": 2,
+      "kind": {
+        "type": "float",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.52,
+        "step": 0.001
+      },
+      "flags": {
+        "automatable": true
+      },
+      "suggested_control": "knob"
+    },
+    {
+      "index": 17,
+      "id": "pole",
+      "name": "Pole Radius",
+      "page": "pickup",
+      "order": 3,
+      "kind": {
+        "type": "float",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.62,
+        "step": 0.001
+      },
+      "flags": {
+        "automatable": true
+      },
+      "suggested_control": "knob"
+    },
+    {
+      "index": 18,
+      "id": "twist",
+      "name": "Axis Twist",
+      "page": "resonator",
+      "order": 3,
+      "kind": {
+        "type": "float",
+        "minimum": 0.0,
+        "maximum": 1.0,
+        "default": 0.18,
+        "step": 0.001
       },
       "flags": {
         "automatable": true

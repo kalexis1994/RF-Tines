@@ -1,10 +1,16 @@
 use serde_json::{Value, json};
 
 pub const PROTOCOL: &str = "rackforge.plugin.web@1";
-/// Gain, pickup law, distance, alignment, hardness, sustain, bell, dynamics.
-pub const PARAMETERS: usize = 15;
+/// Gain, pickup law, distance, alignment, hardness, sustain, bell, dynamics,
+/// the seven panel electronics, then hammer mass, tine mass, pole radius and
+/// axis twist.
+pub const PARAMETERS: usize = 19;
+/// What the panel shows before the host answers, which has to be the program
+/// the plugin opens on. These were still the retired decade voicing after the
+/// catalog moved; they are now Portable Bark 1972, the current default.
 pub const DEFAULTS: [f64; PARAMETERS] = [
-    0.1, 2.0, 0.75, 0.48, 0.42, 0.48, 0.22, 0.5, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.9,
+    0.1, 2.0, 0.6, 0.45, 0.45, 0.5, 0.26, 0.5, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.85, 0.46,
+    0.52, 0.62, 0.18,
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,7 +74,9 @@ pub fn valid(index: usize, value: f64) -> bool {
             10 | 13 => [0.0, 1.0].contains(&value),
             11 => (0.5..=12.0).contains(&value),
             12 | 14 => (0.0..=1.0).contains(&value),
-            4..=7 => (0.0..=1.0).contains(&value),
+            // Unit controls: the four voicing ones, and the four mechanical
+            // ones the panel gained with the second motion coordinate.
+            4..=7 | 15..=18 => (0.0..=1.0).contains(&value),
             _ => false,
         }
 }
@@ -330,7 +338,7 @@ mod tests {
             "vibrato",
             "vibrato-value",
             "stage-controls",
-            "suitcase-controls",
+            "console-controls",
             "tab-instrument",
             "tab-setup",
         ] {
@@ -468,7 +476,8 @@ mod tests {
         assert!(valid(1, 2.0));
         assert!(!valid(1, 3.0));
         assert!(!valid(0, f64::NAN));
-        assert!(!valid(15, 0.0));
+        assert!(!valid(19, 0.0));
+        assert!(valid(15, 0.0) && valid(18, 1.0) && !valid(16, 1.1));
         assert!(valid(2, 0.5) && !valid(2, 0.4) && valid(3, -1.0) && !valid(3, 1.6));
         assert!(valid(7, 1.0) && !valid(4, 1.5));
         let mut client = Client::default();

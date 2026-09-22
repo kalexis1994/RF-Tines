@@ -14,6 +14,8 @@ See [September research review](RESEARCH-2026-09.md) for paper findings, open Ru
 | [Falaize and Hélie, JSV 2017](https://www.sciencedirect.com/science/article/pii/S0022460X16306320) | Passive simulation and modal reduction | Publisher abstract and author demonstration page; full manuscript not inspected; DOI 10.1016/j.jsv.2016.11.008 |
 | [Antoine Falaize demonstrations](https://afalaize.github.io/posts/rhodes/) | Pickup geometry and reproducible reference | Text and links; linked code/audio not evaluated |
 | [Gabrielli et al., JASA 2020](https://iris.univpm.it/handle/11566/286030) | Inharmonic attack modes and intermodulation | Institutional abstract only; DOI 10.1121/10.0002002 |
+| [Chicago Electric Piano, Rhodes timeline](https://chicagoelectricpiano.com/blogs/news/the-ultimate-fender-rhodes-timeline) | Year-by-year hammer, tip and tine changes | Article text; a dealer's history, not a measurement |
+| [Vintage Vibe, guide to hammer tips](https://www.vintagevibe.com/blogs/news/the-definitive-guide-to-vintage-vibe-hammer-tips) | Felt to neoprene in 1971; tip density by register | Article text; a supplier's guide, not a measurement |
 | [Shear and Wright, NIME 2011](https://www.nime.org/proc/nime2011_shear/index.html) | Experiments on an augmented Rhodes | Proceedings record and abstract; related thesis measurement tables remain unverified |
 
 Outstanding: select an actual reference instrument; acquire direct recordings; read the full JASA modal study; quantify tonebar/mount contributions; calibrate the contact and pickup models; evaluate higher-rate reference renders.

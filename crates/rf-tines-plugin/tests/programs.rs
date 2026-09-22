@@ -157,7 +157,11 @@ fn malformed_programs_and_parameter_domains_reject_atomically() {
         (5, -0.1),
         (6, f64::INFINITY),
         (7, 1.01),
-        (15, 0.0),
+        (19, 0.0),
+        (15, 1.1),
+        (16, -0.1),
+        (17, 1.1),
+        (18, -0.1),
         (8, 12.1),
         (9, -12.1),
         (10, 0.5),
@@ -293,7 +297,7 @@ fn older_state_schemas_map_onto_the_voicing_they_were_listening_to() {
     // Schema 4 rejects every corrupted field atomically.
     assert!(plugin.set_parameter(1, 1.0));
     let before = state(&plugin);
-    for (index, value) in [(0, 0), (4, 6), (64, 3), (65, 1), (67, 9)] {
+    for (index, value) in [(0, 0), (4, 9), (64, 3), (65, 1), (67, 9)] {
         let mut malformed = before;
         malformed[index] = value;
         assert!(!plugin.load_state(&malformed), "{index}");
@@ -418,14 +422,19 @@ fn catalog_retires_research_programs_but_keeps_saved_ids_loadable() {
         .iter()
         .map(|p| p["id"].as_str().unwrap())
         .collect();
+    // The catalog leads with the program the plugin opens on, then runs in
+    // order of the year each voicing stands for.
     assert_eq!(
         ids,
         [
-            "stage-early-70s",
-            "suitcase-mid-70s",
-            "stage-late-70s",
-            "suitcase-late-70s",
-            "stage-80s"
+            "portable-bark-1972",
+            "tine-bass-1960",
+            "felt-1966",
+            "console-bark-1973",
+            "portable-bell-1977",
+            "console-bell-1978",
+            "portable-chime-1980",
+            "wide-dynamics-1984"
         ]
     );
     assert!(
@@ -435,9 +444,9 @@ fn catalog_retires_research_programs_but_keeps_saved_ids_loadable() {
             .iter()
             .all(|b| b["id"] != "research")
     );
-    for (id, _, _, expected) in presets().into_iter().take(5) {
-        assert!(!ids.contains(&id));
-        assert!(plugin.load_preset(id));
+    for (id, _, _, expected) in presets().into_iter().take(10) {
+        assert!(!ids.contains(&id), "{id} should not be advertised");
+        assert!(plugin.load_preset(id), "{id} should still load");
         for index in 0..15 {
             assert_eq!(plugin.get_parameter(index), expected.parameter(index));
         }
@@ -448,7 +457,7 @@ fn catalog_retires_research_programs_but_keeps_saved_ids_loadable() {
 fn initial_sound_and_declared_defaults_match_first_catalog_program() {
     let initial = RfTinesProcessor::default();
     let mut selected = RfTinesProcessor::default();
-    assert!(selected.load_preset("stage-early-70s"));
+    assert!(selected.load_preset("portable-bark-1972"));
     let schema: serde_json::Value =
         serde_json::from_str(include_str!("../../../package/metadata/parameters.json")).unwrap();
     for item in schema["parameters"].as_array().unwrap() {

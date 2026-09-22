@@ -8,8 +8,10 @@ use serde::{Deserialize, Serialize};
 /// Conservative starting gain for the measured ten-key repeated-strike case.
 /// Not a limiter or a guarantee for arbitrary accumulated mechanical energy.
 pub const DEFAULT_GAIN: f64 = 0.1;
-/// Parameter order: gain, law, distance, alignment, hardness, sustain, bell, dynamics.
-pub const PARAMETERS: usize = 15;
+/// Parameter order: gain, law, distance, alignment, hardness, sustain, bell,
+/// dynamics, then the seven panel electronics, then the four mechanical
+/// controls: hammer mass, tine mass, pole radius and axis twist.
+pub const PARAMETERS: usize = 19;
 pub const LAW_NAMES: [&str; 3] = ["Production", "Aperture", "Register Aperture"];
 
 /// The Sound page in physical and normalized terms. Every field maps to a
@@ -47,6 +49,24 @@ pub struct Settings {
     pub preamp: f64,
     #[serde(default = "one")]
     pub bass_boost: f64,
+    /// Mass of the hammer, as a share of the nominal four grams. The one
+    /// documented change this instrument could never express: a hammer that
+    /// went from a wood and plastic hybrid to fully plastic in 1975, reported
+    /// as a tighter response against the earlier bounce.
+    pub hammer: f64,
+    /// Mass the tine presents to the hammer. A heavier tine takes the same
+    /// blow less far and holds the hammer longer, which is a different
+    /// instrument rather than a different regulation of one.
+    pub tine: f64,
+    /// Radius of the pickup's pole face. Where the tine sits relative to the
+    /// pole ring decides how sharply the flux turns over as it swings.
+    pub pole: f64,
+    /// How far the tine's principal bending axes are turned off the strike,
+    /// and how far apart their frequencies sit. At zero the tip travels on a
+    /// line, which is what every voicing before this control did; above it
+    /// the path opens into a slowly turning ellipse. One control because both
+    /// come from the same thing, the anisotropy of the mount.
+    pub twist: f64,
 }
 
 fn default_speed() -> f64 {
@@ -74,6 +94,13 @@ impl Default for Settings {
             intensity: 0.0,
             preamp: 1.0,
             bass_boost: 1.0,
+            // The nominal profile: 4 g hammer, 1.5 g tine, a 2 mm pole and a
+            // tip that stays on one axis. Every preset written before these
+            // controls inherits them and renders exactly as it did.
+            hammer: 0.5,
+            tine: 0.5,
+            pole: 0.6,
+            twist: 0.0,
         }
     }
 }
@@ -81,7 +108,29 @@ impl Default for Settings {
 /// Factory presets: id, name, description, settings.
 /// Loadable factory IDs, including retired research IDs for saved-session compatibility.
 /// Only entries in metadata/presets.json are advertised to the host.
-pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 10] {
+///
+/// The instrument presets from `felt-1966` onward each stand for a documented
+/// change to the real instrument rather than a point on a smooth ramp. The
+/// five decade entries before them are the earlier inspired approximations,
+/// retired but still loadable so saved sessions keep working.
+///
+/// None of them is named after anybody's product. This project already
+/// dropped one name for that reason -- RF-Rhodes, then RF-73, then RF-Tines
+/// (docs/RENAMING.md) -- and a preset label carries the same weight as the
+/// plugin's own. Visible names say what the voicing is and when the change
+/// happened; the instruments, suppliers and preamps behind them are named
+/// only in docs/PERIOD-INSTRUMENTS.md, where citing a source is the point.
+///
+/// What the sources support, and what they do not, is set out in
+/// docs/PERIOD-INSTRUMENTS.md. Two limits are worth repeating here. The
+/// hammer changed from a wood and plastic hybrid to fully plastic in 1975,
+/// which is reported as a tighter response against the earlier bounce; this
+/// model has no hammer mass control, so no preset expresses it. And the
+/// pickup geometry these presets carry is a model parameter, not a recovered
+/// dimension: docs/PICKUP-GEOMETRY-CEILING.md shows the whole usable range
+/// sits below what the service manual permits, for reasons that are still
+/// open.
+pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
     let default = Settings::default();
     [
         (
@@ -242,6 +291,214 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 10] {
                 ..default
             },
         ),
+        // --- Instruments, one per documented change ---------------------
+        (
+            "felt-1966",
+            "Felt Tips 1966",
+            "The softest hammer tips and the darkest attack of the set.",
+            Settings {
+                law: 2,
+                hardness: 0.22,
+                sustain: 0.5,
+                bell: 0.18,
+                distance_mm: 0.8,
+                alignment_mm: 0.35,
+                dynamics: 0.5,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 0.85,
+                // A light felt-tipped hammer against a heavier early tine, a wide
+                // pole and a mount whose axes sit well off the strike.
+                hammer: 0.34,
+                tine: 0.6,
+                pole: 0.72,
+                twist: 0.3,
+                ..default
+            },
+        ),
+        (
+            "portable-bark-1972",
+            "Portable Bark 1972",
+            "Cube rubber tips and a close pickup: the warm bark. Passive tone.",
+            Settings {
+                law: 2,
+                hardness: 0.45,
+                sustain: 0.5,
+                bell: 0.26,
+                distance_mm: 0.6,
+                alignment_mm: 0.45,
+                dynamics: 0.5,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 0.85,
+                // The nominal hardware, near enough: this is the voicing everything
+                // else is heard against.
+                hammer: 0.46,
+                tine: 0.52,
+                pole: 0.62,
+                twist: 0.18,
+                ..default
+            },
+        ),
+        (
+            "console-bark-1973",
+            "Console Bark 1973",
+            "The same mechanism through an active console preamp and stereo vibrato.",
+            Settings {
+                law: 2,
+                hardness: 0.45,
+                sustain: 0.5,
+                bell: 0.26,
+                distance_mm: 0.6,
+                alignment_mm: 0.48,
+                dynamics: 0.5,
+                preamp: 1.0,
+                bass_db: 1.5,
+                treble_db: -0.5,
+                vibrato: 1.0,
+                speed_hz: 4.4,
+                intensity: 0.5,
+                bass_boost: 1.0,
+                // The same hardware as 1972. Only the amplification differs.
+                hammer: 0.46,
+                tine: 0.52,
+                pole: 0.62,
+                twist: 0.18,
+                ..default
+            },
+        ),
+        (
+            "portable-bell-1977",
+            "Portable Bell 1977",
+            "Graduated tips and a later tine: the bark turning towards bell.",
+            Settings {
+                law: 2,
+                hardness: 0.62,
+                sustain: 0.5,
+                bell: 0.4,
+                distance_mm: 0.68,
+                alignment_mm: 0.52,
+                dynamics: 0.5,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 0.85,
+                // A heavier hammer on a lighter tine over a narrower pole, which is
+                // where the bark starts giving way to bell.
+                hammer: 0.6,
+                tine: 0.44,
+                pole: 0.5,
+                twist: 0.12,
+                ..default
+            },
+        ),
+        (
+            "console-bell-1978",
+            "Console Bell 1978",
+            "The later mechanism through the second console preamp, brighter in its EQ.",
+            Settings {
+                law: 2,
+                hardness: 0.62,
+                sustain: 0.5,
+                bell: 0.4,
+                distance_mm: 0.66,
+                alignment_mm: 0.5,
+                dynamics: 0.5,
+                preamp: 1.0,
+                bass_db: -1.0,
+                treble_db: 1.5,
+                vibrato: 1.0,
+                speed_hz: 5.2,
+                intensity: 0.45,
+                bass_boost: 1.0,
+                // The same hardware as 1977. Only the amplification differs.
+                hammer: 0.6,
+                tine: 0.44,
+                pole: 0.5,
+                twist: 0.12,
+                ..default
+            },
+        ),
+        (
+            "portable-chime-1980",
+            "Portable Chime 1980",
+            "The most bell and the least deep bark of the set. Passive tone.",
+            Settings {
+                law: 2,
+                hardness: 0.64,
+                sustain: 0.5,
+                bell: 0.52,
+                distance_mm: 0.78,
+                alignment_mm: 0.58,
+                dynamics: 0.5,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 0.85,
+                // The fully plastic hammer at its heaviest against the lightest
+                // tine: least deep, most bell.
+                hammer: 0.68,
+                tine: 0.38,
+                pole: 0.42,
+                twist: 0.08,
+                ..default
+            },
+        ),
+        (
+            "wide-dynamics-1984",
+            "Wide Dynamics 1984",
+            "A later action, reaching further between a soft touch and a hard one.",
+            Settings {
+                law: 2,
+                hardness: 0.66,
+                sustain: 0.5,
+                bell: 0.46,
+                distance_mm: 0.72,
+                alignment_mm: 0.55,
+                dynamics: 0.68,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 0.9,
+                // A lighter instrument, which is how the last of them is
+                // described: the lightest hammer of the late group on a light
+                // tine, and the widest reach between a soft touch and a hard
+                // one. Sat between 1977 and 1980 in a first pass and was
+                // 1.54 dB from 1977, which the separation test refused.
+                hammer: 0.40,
+                tine: 0.42,
+                pole: 0.46,
+                twist: 0.26,
+                ..default
+            },
+        ),
+        (
+            "tine-bass-1960",
+            "Tine Bass 1960",
+            "A short bass keyboard, E1 to B3, in a felt-tip voicing. Play it low.",
+            Settings {
+                law: 2,
+                hardness: 0.22,
+                sustain: 0.5,
+                bell: 0.15,
+                distance_mm: 0.88,
+                alignment_mm: 0.32,
+                dynamics: 0.44,
+                preamp: 0.0,
+                vibrato: 0.0,
+                intensity: 0.0,
+                bass_boost: 1.0,
+                // The heaviest tine of the set under a modest hammer, far from a wide
+                // pole: the short bass keyboard's own hardware.
+                hammer: 0.4,
+                tine: 0.72,
+                pole: 0.8,
+                twist: 0.34,
+                ..default
+            },
+        ),
     ]
 }
 
@@ -272,6 +529,10 @@ impl Settings {
             && unit(self.intensity)
             && [0.0, 1.0].contains(&self.preamp)
             && unit(self.bass_boost)
+            && unit(self.hammer)
+            && unit(self.tine)
+            && unit(self.pole)
+            && unit(self.twist)
     }
 
     /// The mechanical and pickup profile these settings describe.
@@ -289,6 +550,17 @@ impl Settings {
             bar_partial_decay_seconds: (0.16 * 14.375_f64.powf(2.0 * self.sustain)).min(10.0),
             bar_partial_strike_weight: -0.3 * self.bell * self.bell,
             velocity_exponent: 1.4 * 2.0_f64.powf(2.0 * self.dynamics - 1.0),
+            // Geometric about the nominal mass, so a half setting is the
+            // nominal value and the two ends are a factor of two either way.
+            hammer_mass_kg: 0.004 * 2.0_f64.powf(2.0 * self.hammer - 1.0),
+            modal_mass_kg: 0.0015 * 2.0_f64.powf(2.0 * self.tine - 1.0),
+            // Linear across the pole radii the flux law accepts; 0.6 is the
+            // 2 mm pole every profile before this control used.
+            pickup_pole_radius_m: 0.0005 + 0.0025 * self.pole,
+            // Both axis numbers come from one physical cause, so one control
+            // moves them together, and zero is exactly the single-axis tip.
+            tine_boundary_angle_rad: 0.6 * self.twist,
+            tine_transverse_frequency_ratio: 1.0 + 0.06 * self.twist,
             ..Profile::default()
         }
     }
@@ -310,6 +582,10 @@ impl Settings {
             12 => self.intensity,
             13 => self.preamp,
             14 => self.bass_boost,
+            15 => self.hammer,
+            16 => self.tine,
+            17 => self.pole,
+            18 => self.twist,
             _ => return None,
         })
     }
@@ -338,6 +614,10 @@ impl Settings {
             12 => self.intensity = value,
             13 => self.preamp = value,
             14 => self.bass_boost = value,
+            15 => self.hammer = value,
+            16 => self.tine = value,
+            17 => self.pole = value,
+            18 => self.twist = value,
             _ => return None,
         }
         self.valid().then_some(self)

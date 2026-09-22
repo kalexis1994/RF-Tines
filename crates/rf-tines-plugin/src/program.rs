@@ -154,7 +154,7 @@ type Field = (
     u32,
     &'static str,
 );
-const FIELDS: [Field; 15] = [
+const FIELDS: [Field; 19] = [
     (
         "distance",
         "Pickup Distance",
@@ -320,6 +320,50 @@ const FIELDS: [Field; 15] = [
         3,
         "",
     ),
+    (
+        "hammer",
+        "Hammer Mass",
+        "Mass of the hammer; 0.500 is the nominal four grams.",
+        15,
+        1000.0,
+        0,
+        1000,
+        3,
+        "",
+    ),
+    (
+        "tine",
+        "Tine Mass",
+        "Mass the tine presents to the hammer; 0.500 is nominal.",
+        16,
+        1000.0,
+        0,
+        1000,
+        3,
+        "",
+    ),
+    (
+        "pole",
+        "Pole Radius",
+        "Pickup pole face, 0.50..3.00 mm; 0.600 is the original 2 mm.",
+        17,
+        1000.0,
+        0,
+        1000,
+        3,
+        "",
+    ),
+    (
+        "twist",
+        "Axis Twist",
+        "Turns the tine's bending axes off the strike; zero keeps it on a line.",
+        18,
+        1000.0,
+        0,
+        1000,
+        3,
+        "",
+    ),
 ];
 
 pub fn view(bytes: &[u8], destination: &mut [u8]) -> Option<usize> {
@@ -337,8 +381,8 @@ pub fn view(bytes: &[u8], destination: &mut [u8]) -> Option<usize> {
             let options = match id {
                 "law" => laws.clone(),
                 "preamp" => vec![
-                    json!({"value":"0","label":"Stage"}),
-                    json!({"value":"1","label":"Suitcase"}),
+                    json!({"value":"0","label":"Passive"}),
+                    json!({"value":"1","label":"Console"}),
                 ],
                 _ => vec![
                     json!({"value":"0","label":"Off"}),

@@ -14,69 +14,108 @@
   ],
   "presets": [
     {
-      "id": "stage-early-70s",
-      "name": "Stage 73 - Early '70s",
+      "id": "portable-bark-1972",
+      "name": "Portable Bark 1972",
       "bank": "instruments",
       "editable": true,
       "category": "Electric Piano",
       "order": 0,
       "tags": [
-        "inspired",
+        "instrument",
         "physical-model"
       ],
-      "description": "Rounded attack, restrained bell, passive-style bass control. Editable approximation, not an exact replica."
+      "description": "Cube rubber tips and a close pickup: the warm bark. Passive tone. Editable approximation, not a copy of any particular instrument."
     },
     {
-      "id": "suitcase-mid-70s",
-      "name": "Suitcase 73 - Mid '70s",
+      "id": "tine-bass-1960",
+      "name": "Tine Bass 1960",
       "bank": "instruments",
       "editable": true,
       "category": "Electric Piano",
       "order": 1,
       "tags": [
-        "inspired",
+        "instrument",
         "physical-model"
       ],
-      "description": "Warm voicing, gentle EQ and slow stereo movement. Editable approximation, not an exact replica."
+      "description": "A short bass keyboard, E1 to B3, in a felt-tip voicing. Play it in the bottom octaves. Editable approximation, not a copy of any particular instrument."
     },
     {
-      "id": "stage-late-70s",
-      "name": "Stage 73 - Late '70s",
+      "id": "felt-1966",
+      "name": "Felt Tips 1966",
       "bank": "instruments",
       "editable": true,
       "category": "Electric Piano",
       "order": 2,
       "tags": [
-        "inspired",
+        "instrument",
         "physical-model"
       ],
-      "description": "Firmer attack and open upper partials. Editable approximation, not an exact replica."
+      "description": "The softest hammer tips and the darkest attack of the set. Passive tone. Editable approximation, not a copy of any particular instrument."
     },
     {
-      "id": "suitcase-late-70s",
-      "name": "Suitcase 73 - Late '70s",
+      "id": "console-bark-1973",
+      "name": "Console Bark 1973",
       "bank": "instruments",
       "editable": true,
       "category": "Electric Piano",
       "order": 3,
       "tags": [
-        "inspired",
+        "instrument",
         "physical-model"
       ],
-      "description": "Clearer attack and lively stereo movement. Editable approximation, not an exact replica."
+      "description": "The same mechanism through an active console preamp and its stereo vibrato. Editable approximation, not a copy of any particular instrument."
     },
     {
-      "id": "stage-80s",
-      "name": "Stage 73 - '80s",
+      "id": "portable-bell-1977",
+      "name": "Portable Bell 1977",
       "bank": "instruments",
       "editable": true,
       "category": "Electric Piano",
       "order": 4,
       "tags": [
-        "inspired",
+        "instrument",
         "physical-model"
       ],
-      "description": "Articulate attack and restrained decay. Editable approximation, not an exact replica."
+      "description": "Graduated tips and a later tine, where the bark begins to turn towards bell. Editable approximation, not a copy of any particular instrument."
+    },
+    {
+      "id": "console-bell-1978",
+      "name": "Console Bell 1978",
+      "bank": "instruments",
+      "editable": true,
+      "category": "Electric Piano",
+      "order": 5,
+      "tags": [
+        "instrument",
+        "physical-model"
+      ],
+      "description": "The later mechanism through the second console preamp, brighter in its EQ. Editable approximation, not a copy of any particular instrument."
+    },
+    {
+      "id": "portable-chime-1980",
+      "name": "Portable Chime 1980",
+      "bank": "instruments",
+      "editable": true,
+      "category": "Electric Piano",
+      "order": 6,
+      "tags": [
+        "instrument",
+        "physical-model"
+      ],
+      "description": "The most bell and the least deep bark of the set. Passive tone. Editable approximation, not a copy of any particular instrument."
+    },
+    {
+      "id": "wide-dynamics-1984",
+      "name": "Wide Dynamics 1984",
+      "bank": "instruments",
+      "editable": true,
+      "category": "Electric Piano",
+      "order": 7,
+      "tags": [
+        "instrument",
+        "physical-model"
+      ],
+      "description": "A later action, reaching further between a soft touch and a hard one. Editable approximation, not a copy of any particular instrument."
     }
   ]
 }

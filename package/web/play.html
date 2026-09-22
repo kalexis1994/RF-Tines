@@ -144,7 +144,7 @@
               <div class="section-heading">
                 <h2>Instrument</h2>
                 <p>
-                  Controls at your fingertips. Stage or Suitcase, your choice.
+                  Controls at your fingertips. Passive or console, your choice.
                 </p>
               </div>
               <div class="panel-switches">
@@ -156,8 +156,8 @@
                     disabled
                     data-rackforge-parameter-index="13"
                   >
-                    <option value="0">Stage</option>
-                    <option value="1">Suitcase</option>
+                    <option value="0">Passive</option>
+                    <option value="1">Console</option>
                   </select>
                 </div>
                 <div class="control" id="vibrato-control">
@@ -237,7 +237,7 @@
                     <p>Restore low frequencies. Fully clockwise is flat.</p>
                   </div>
                 </div>
-                <div id="suitcase-controls" class="control-group">
+                <div id="console-controls" class="control-group">
                   <div class="control">
                     <label for="bass"
                       >Bass<output id="bass-value">0</output></label
@@ -408,6 +408,36 @@
                   /><span class="knob-unit"></span>
                   <p>Stiffness of the hammer-tip contact.</p>
                 </div>
+                <div class="control">
+                  <label for="hammer-mass"
+                    >Hammer Mass<output id="hammer-mass-value">0.46</output></label
+                  >
+                  <div class="knob" id="hammer-mass-knob">
+                    <span class="dial" aria-hidden="true"></span
+                    ><input
+                      id="hammer-mass"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.001"
+                      value="0.46"
+                      disabled
+                      data-rackforge-parameter-index="15"
+                    />
+                  </div>
+                  <label class="sr-only" for="hammer-mass-number">Hammer Mass value</label
+                  ><input
+                    class="knob-number"
+                    id="hammer-mass-number"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.001"
+                    value="0.46"
+                    disabled
+                  /><span class="knob-unit"></span>
+                  <p>Mass of the hammer; the middle is the nominal four grams.</p>
+                </div>
               </div>
             </section>
             <section
@@ -482,6 +512,66 @@
                     disabled
                   /><span class="knob-unit"></span>
                   <p>Excitation of the upper bending mode.</p>
+                </div>
+                <div class="control">
+                  <label for="tine"
+                    >Tine Mass<output id="tine-value">0.52</output></label
+                  >
+                  <div class="knob" id="tine-knob">
+                    <span class="dial" aria-hidden="true"></span
+                    ><input
+                      id="tine"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.001"
+                      value="0.52"
+                      disabled
+                      data-rackforge-parameter-index="16"
+                    />
+                  </div>
+                  <label class="sr-only" for="tine-number">Tine Mass value</label
+                  ><input
+                    class="knob-number"
+                    id="tine-number"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.001"
+                    value="0.52"
+                    disabled
+                  /><span class="knob-unit"></span>
+                  <p>Mass the tine presents to the hammer.</p>
+                </div>
+                <div class="control">
+                  <label for="twist"
+                    >Axis Twist<output id="twist-value">0.18</output></label
+                  >
+                  <div class="knob" id="twist-knob">
+                    <span class="dial" aria-hidden="true"></span
+                    ><input
+                      id="twist"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.001"
+                      value="0.18"
+                      disabled
+                      data-rackforge-parameter-index="18"
+                    />
+                  </div>
+                  <label class="sr-only" for="twist-number">Axis Twist value</label
+                  ><input
+                    class="knob-number"
+                    id="twist-number"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.001"
+                    value="0.18"
+                    disabled
+                  /><span class="knob-unit"></span>
+                  <p>Turns the tine's bending axes off the strike. At zero the tip travels on a line; above it the path opens into a slowly turning ellipse.</p>
                 </div>
               </div>
             </section>
@@ -562,6 +652,36 @@
                     disabled
                   /><span class="knob-unit">mm</span>
                   <p>Position relative to the pickup axis.</p>
+                </div>
+                <div class="control">
+                  <label for="pole"
+                    >Pole Radius<output id="pole-value">0.62</output></label
+                  >
+                  <div class="knob" id="pole-knob">
+                    <span class="dial" aria-hidden="true"></span
+                    ><input
+                      id="pole"
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.001"
+                      value="0.62"
+                      disabled
+                      data-rackforge-parameter-index="17"
+                    />
+                  </div>
+                  <label class="sr-only" for="pole-number">Pole Radius value</label
+                  ><input
+                    class="knob-number"
+                    id="pole-number"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.001"
+                    value="0.62"
+                    disabled
+                  /><span class="knob-unit"></span>
+                  <p>Radius of the pickup's pole face, 0.5 to 3 mm.</p>
                 </div>
                 <div class="control" id="law-control">
                   <label for="law"

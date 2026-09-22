@@ -13,9 +13,13 @@ use std::collections::BTreeMap;
 
 pub const MAX_FRAMES: u32 = 4096;
 pub const MAX_EVENTS: usize = 256;
-pub const STATE_VERSION: u32 = 5;
-/// V4 prefix (68 bytes), followed by seven electronic-control f64 fields.
-pub const STATE_BYTES: usize = 124;
+pub const STATE_VERSION: u32 = 6;
+/// V5 prefix (124 bytes: the V4 prefix plus seven electronic-control f64
+/// fields), followed by four mechanical f64 fields.
+pub const STATE_BYTES: usize = 156;
+/// The V5 length, still loadable; its four mechanical controls take the
+/// nominal profile, so a session saved before them sounds as it was saved.
+const V5_STATE_BYTES: usize = 124;
 pub const PARAMETER_GAIN: u32 = 0;
 pub const PARAMETER_LAW: u32 = 1;
 pub const PARAMETER_DISTANCE: u32 = 2;
@@ -38,7 +42,7 @@ impl Default for RfTinesProcessor {
     fn default() -> Self {
         let settings = presets()
             .into_iter()
-            .find(|preset| preset.0 == "stage-early-70s")
+            .find(|preset| preset.0 == "portable-bark-1972")
             .expect("default factory program exists")
             .3;
         Self {
@@ -208,11 +212,19 @@ impl Processor for RfTinesProcessor {
         {
             bytes[68 + 8 * i..76 + 8 * i].copy_from_slice(&value.to_le_bytes());
         }
+        for (i, value) in [s.hammer, s.tine, s.pole, s.twist]
+            .into_iter()
+            .enumerate()
+        {
+            bytes[124 + 8 * i..132 + 8 * i].copy_from_slice(&value.to_le_bytes());
+        }
         Some(STATE_BYTES)
     }
 
     fn load_state(&mut self, state: &[u8]) -> bool {
-        if ![16, 20, 68, STATE_BYTES].contains(&state.len()) || &state[..4] != b"RFRH" {
+        if ![16, 20, 68, V5_STATE_BYTES, STATE_BYTES].contains(&state.len())
+            || &state[..4] != b"RFRH"
+        {
             return false;
         }
         let version = u32::from_le_bytes(state[4..8].try_into().expect("validated state length"));
@@ -256,7 +268,10 @@ impl Processor for RfTinesProcessor {
                     ..Settings::default()
                 }
             }
-            (4, 68) | (STATE_VERSION, STATE_BYTES) if state[65..68] == [0, 0, 0] => Settings {
+            (4, 68) | (5, V5_STATE_BYTES) | (STATE_VERSION, STATE_BYTES)
+                if state[65..68] == [0, 0, 0] =>
+            {
+                Settings {
                 gain,
                 law: state[64],
                 distance_mm: field(1),
@@ -266,13 +281,20 @@ impl Processor for RfTinesProcessor {
                 bell: field(5),
                 dynamics: field(6),
                 ..Settings::default()
-            },
+                }
+            }
             _ => return false,
         };
+        // Each later schema appends a block of controls. A shorter state
+        // keeps the defaults for everything it predates, which for the
+        // mechanical block is the nominal profile it was saved under.
         let mut settings = settings;
-        if version == STATE_VERSION {
-            for index in 8..15 {
-                let offset = 68 + (index as usize - 8) * 8;
+        for (from_version, base, range) in [(5u32, 68usize, 8u32..15), (6, 124, 15..19)] {
+            if version < from_version {
+                break;
+            }
+            for index in range {
+                let offset = base + (index - (if from_version == 5 { 8 } else { 15 })) as usize * 8;
                 let value = f64::from_le_bytes(
                     state[offset..offset + 8]
                         .try_into()

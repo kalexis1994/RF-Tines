@@ -805,3 +805,231 @@ fn a_two_plane_profile_is_compensated_through_its_own_pickup() {
         "leaning the tine across the pole changed nothing: {leaned_ratio}"
     );
 }
+
+/// An uncoupled tonebar is not there at all.
+///
+/// Every voicing that predates the second prong has to render through it
+/// untouched, and at zero coupling that is exact rather than close: the pair
+/// separates, the tonebar has no participation at the tine, so it is neither
+/// struck nor heard, and the tine's mode is the fundamental it always was.
+#[test]
+fn an_unjoined_tonebar_leaves_the_tine_exactly_as_it_was() {
+    for profile in [Profile::default(), Profile::calibrated()] {
+        assert_eq!(profile.tonebar_coupling, 0.0);
+        for note in [FIRST_NOTE, 55, LAST_NOTE] {
+            let mut alone = Voice::new(48_000.0, note, profile).unwrap();
+            // A tonebar that cannot be heard should not be heard whatever it
+            // is made of, so the twin carries a wildly different one.
+            let mut twin = Voice::new(
+                48_000.0,
+                note,
+                Profile {
+                    tonebar_frequency_ratio: 2.2,
+                    tonebar_mass_ratio: 40.0,
+                    tonebar_decay_seconds: 0.4,
+                    ..profile
+                },
+            )
+            .unwrap();
+            alone.strike(0.8);
+            twin.strike(0.8);
+            for step in 0..20_000 {
+                let (left, right) = (alone.tick(), twin.tick());
+                assert_eq!(left, right, "note {note} step {step}");
+            }
+        }
+    }
+}
+
+/// Joining the prongs has to change the shape of the decay, not only its
+/// speed.
+///
+/// A lone tine dies as one exponential, which is a straight line in decibels,
+/// because nothing takes energy from it and gives it back. A fork does not:
+/// the two normal modes damp at different rates and beat against each other,
+/// so the envelope bends and ripples. The service manual's own account of the
+/// instrument is that restraining the tonebar costs sustain, which only means
+/// anything if the prongs trade.
+#[test]
+fn a_joined_tonebar_bends_the_decay_it_used_to_be_a_straight_line() {
+    let straightness = |coupling: f64, ratio: f64| {
+        let profile = Profile {
+            tonebar_coupling: coupling,
+            tonebar_frequency_ratio: ratio,
+            ..Profile::calibrated()
+        };
+        let mut voice = Voice::new(48_000.0, 55, profile).unwrap();
+        voice.strike(0.7);
+        // Envelope in decibels over two seconds, one point per 20 ms.
+        let mut points = Vec::new();
+        for _ in 0..100 {
+            let mut power = 0.0;
+            for _ in 0..(48_000 * 4 / 50) {
+                let value = voice.tick();
+                power += value * value;
+            }
+            points.push(10.0 * (power / 3840.0).max(1e-30).log10());
+        }
+        // Residual of the straight line through it, which is what a single
+        // exponential would leave behind: nothing.
+        let n = points.len() as f64;
+        let mean_x = (n - 1.0) / 2.0;
+        let mean_y = points.iter().sum::<f64>() / n;
+        let (mut sxy, mut sxx) = (0.0, 0.0);
+        for (i, y) in points.iter().enumerate() {
+            let dx = i as f64 - mean_x;
+            sxy += dx * (y - mean_y);
+            sxx += dx * dx;
+        }
+        let slope = sxy / sxx;
+        (points
+            .iter()
+            .enumerate()
+            .map(|(i, y)| {
+                let fit = mean_y + slope * (i as f64 - mean_x);
+                (y - fit) * (y - fit)
+            })
+            .sum::<f64>()
+            / n)
+            .sqrt()
+    };
+    let alone = straightness(0.0, 1.5);
+    // Where the coupling pulls the two normal modes close together, the note
+    // beats against itself and the envelope ripples hard.
+    let close = straightness(0.2, 1.08);
+    assert!(
+        close > 10.0 * alone,
+        "the fork barely bent the decay: {close:.3} dB against {alone:.3} dB alone"
+    );
+    // And this pins what the probe found: at the spacing the measurements
+    // actually report, several hundred cents and more, the prongs are too far
+    // apart to trade and the envelope stays as straight as a lone tine's.
+    // docs/PLAYABLE-TONEBAR.md records that as a failed prediction rather
+    // than hiding it, and this holds the finding in place.
+    let apart = straightness(0.6, 1.5);
+    assert!(
+        apart < 2.0 * alone,
+        "the far-spaced fork now bends the decay after all: {apart:.3} against {alone:.3}"
+    );
+}
+
+/// The joined fork still takes no energy from the hammer, over eight
+/// coordinates instead of six.
+#[test]
+fn a_fork_with_both_prongs_stays_passive() {
+    let profile = Profile {
+        tonebar_coupling: 0.8,
+        tine_boundary_angle_rad: 0.4,
+        tine_transverse_frequency_ratio: 1.05,
+        ..Profile::calibrated()
+    };
+    for note in [FIRST_NOTE, 55, LAST_NOTE] {
+        for velocity in [0.05, 0.5, 1.0] {
+            let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+            voice.strike(velocity);
+            let mut previous = voice.probe().mechanical_energy_j;
+            for _ in 0..(48_000.0 * OVERSAMPLE as f64 * 0.04) as usize {
+                let value = voice.tick();
+                assert!(value.is_finite());
+                let now = voice.probe().mechanical_energy_j;
+                assert!(
+                    now <= previous * (1.0 + 1e-8) + 1e-15,
+                    "energy grew at {note}/{velocity}: {now} > {previous}"
+                );
+                previous = now;
+            }
+            assert!(!voice.probe().contact_active, "contact did not separate");
+        }
+    }
+}
+
+/// A tonebar asked for a short decay at a low frequency would stop
+/// oscillating, and a mode that stops oscillating comes back as NaN rather
+/// than as a thud. Every corner of the validated ranges has to stay audible
+/// and finite.
+#[test]
+fn no_tonebar_the_ranges_allow_can_turn_a_note_into_nothing() {
+    for ratio in [0.25, 1.0, 4.0] {
+        for decay in [0.05, 80.0] {
+            for mass in [0.1, 100.0] {
+                for coupling in [0.001, 4.0] {
+                    let profile = Profile {
+                        tonebar_coupling: coupling,
+                        tonebar_frequency_ratio: ratio,
+                        tonebar_mass_ratio: mass,
+                        tonebar_decay_seconds: decay,
+                        ..Profile::calibrated()
+                    };
+                    for note in [FIRST_NOTE, LAST_NOTE] {
+                        let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+                        voice.strike(1.0);
+                        let mut reach = 0.0_f64;
+                        for _ in 0..40_000 {
+                            let value = voice.tick();
+                            assert!(
+                                value.is_finite(),
+                                "{ratio}/{decay}/{mass}/{coupling} at {note} went non-finite"
+                            );
+                            reach = reach.max(value.abs());
+                        }
+                        assert!(
+                            reach > 1e-9,
+                            "{ratio}/{decay}/{mass}/{coupling} at {note} was silent"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Joining the tonebar must not move the note.
+///
+/// A coupling spring stiffens the tine, so an assembled fork rings sharp: a
+/// tenth of the tine's own stiffness is 83 cents and three times it is a full
+/// octave. A real tine is tuned after assembly, with its tuning spring, and
+/// the first version of this model was not — which made the calibration
+/// search read the detuning as the tonebar and reject it at four to five
+/// times the error. The search was right about the numbers and wrong about
+/// the cause, and this is what stops that happening again.
+#[test]
+fn joining_the_tonebar_leaves_the_note_where_it_was() {
+    for note in [FIRST_NOTE, 40, 55, 76, LAST_NOTE] {
+        let target = 440.0 * 2.0_f64.powf((f64::from(note) - 69.0) / 12.0);
+        let mut alone = 0.0;
+        for coupling in [0.0, 0.1, 0.8, 3.0] {
+            let profile = Profile {
+                tonebar_coupling: coupling,
+                ..Profile::calibrated()
+            };
+            let mut voice = Voice::new(48_000.0, note, profile).unwrap();
+            voice.strike(0.6);
+            // Zero crossings of the tip over a second, which is twice the
+            // frequency of whatever is leading the motion.
+            let mut previous = 0.0;
+            let mut crossings = 0;
+            for _ in 0..(48_000 * 4) {
+                voice.tick();
+                let now = voice.probe().displacement_m;
+                if previous <= 0.0 && now > 0.0 {
+                    crossings += 1;
+                }
+                previous = now;
+            }
+            let heard = f64::from(crossings);
+            if coupling == 0.0 {
+                alone = heard;
+            }
+            let cents = 1200.0 * (heard / target).log2();
+            assert!(
+                cents.abs() < 35.0,
+                "note {note} at coupling {coupling} rang {heard} Hz against {target:.1}, \
+                 {cents:.0} cents out"
+            );
+            assert!(
+                (heard - alone).abs() <= 2.0,
+                "note {note} at coupling {coupling} moved from {alone} to {heard} Hz"
+            );
+        }
+    }
+}

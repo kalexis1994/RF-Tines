@@ -49,7 +49,7 @@ pub(crate) fn build_to(output: &Path) -> Result<(), Box<dyn Error>> {
         .arg("smoke")
         .arg(&package)
         .arg("--preset")
-        .arg("stage-early-70s")
+        .arg("portable-bark-1972")
         .arg("--data-root")
         .arg(dist.join("smoke-data")))?;
     run(Command::new(&store)

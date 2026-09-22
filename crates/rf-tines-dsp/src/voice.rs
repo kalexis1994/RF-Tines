@@ -2,13 +2,21 @@ use crate::laboratory::{AxialAperture, PlanarAperture, aperture_voltage, planar_
 use crate::{FIRST_NOTE, LAST_NOTE, MagneticPickup, ModelError, OVERSAMPLE, Profile};
 use core::f64::consts::TAU;
 
-const MODES: usize = 3;
+/// Three bending modes of the tine, and the tonebar's lowest. The first two
+/// entries are the coupled pair's normal modes, so index 0 is the
+/// tine-dominated one and index 3 the tonebar-dominated one; the bar and
+/// third partials keep their places in between.
+const MODES: usize = 4;
 /// The two principal bending directions of the tine. A circular wire bends the
 /// same way in both; its support does not, which is what separates them.
 const AXES: usize = 2;
 /// Every bending mode of both axes, laid out as `axis * MODES + mode`.
 const COORDINATES: usize = MODES * AXES;
-const PICKUP_WEIGHTS: [f64; MODES] = [1.0, 0.8, 0.6];
+/// How much of each mode the pickup sees at the tip, relative to the strike
+/// point. The tonebar's entry matches the tine's first mode, because the
+/// tonebar reaches the tip through exactly that shape: it moves the root the
+/// tine is clamped to and nothing else.
+const PICKUP_WEIGHTS: [f64; MODES] = [1.0, 0.8, 0.6, 1.0];
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Probe {
@@ -183,22 +191,20 @@ impl Voice {
         } else {
             1
         };
-        let t60 = [
-            profile.decay_seconds * scale.sqrt(),
-            profile.bar_partial_decay_seconds * scale.sqrt(),
-            profile.third_partial_decay_seconds * scale.sqrt(),
-        ];
+        let table = fork_modes(profile, frequency, scale);
         let modes = core::array::from_fn(|c| {
             let (axis, i) = (c / MODES, c % MODES);
+            let spec = table[i];
+            let spin = axis_frequency_ratio(profile, axis);
             Mode::new(
-                frequency * ratios[i] * axis_frequency_ratio(profile, axis),
-                profile.modal_mass_kg * scale,
-                1000.0_f64.ln() / t60[i],
+                spec.frequency * spin,
+                spec.mass,
+                underdamped(spec.gamma, spec.frequency * spin),
                 dt,
                 dt / contact_steps as f64,
             )
         });
-        let (hammer_weights, pickup_weights) = resolve_axes(profile);
+        let (hammer_weights, pickup_weights) = resolve_axes(profile, &table);
         Self {
             modes,
             hammer_weights,
@@ -231,23 +237,20 @@ impl Voice {
         let base_frequency = 440.0 * 2.0_f64.powf((self.note as f64 - 69.0) / 12.0);
         let frequency = base_frequency * self.pitch_ratio;
         let scale = (220.0 / base_frequency).clamp(0.15, 4.0);
-        let ratios = [1.0, profile.bar_partial_ratio, 17.55];
-        let t60 = [
-            profile.decay_seconds * scale.sqrt(),
-            profile.bar_partial_decay_seconds * scale.sqrt(),
-            profile.third_partial_decay_seconds * scale.sqrt(),
-        ];
+        let table = fork_modes(profile, frequency, scale);
         for (c, mode) in self.modes.iter_mut().enumerate() {
             let (axis, i) = (c / MODES, c % MODES);
+            let spec = table[i];
+            let spin = axis_frequency_ratio(profile, axis);
             mode.set(
-                frequency * ratios[i] * axis_frequency_ratio(profile, axis),
-                profile.modal_mass_kg * scale,
-                1000.0_f64.ln() / t60[i],
+                spec.frequency * spin,
+                spec.mass,
+                underdamped(spec.gamma, spec.frequency * spin),
                 self.dt,
                 self.dt / self.contact_steps as f64,
             );
         }
-        (self.hammer_weights, self.pickup_weights) = resolve_axes(profile);
+        (self.hammer_weights, self.pickup_weights) = resolve_axes(profile, &table);
         self.hammer_mass = profile.hammer_mass_kg * scale.sqrt();
         self.pickup = MagneticPickup::from_validated_profile(profile);
         self.aperture = profile.aperture();
@@ -265,11 +268,16 @@ impl Voice {
         }
         self.pitch_ratio = ratio;
         let frequency = 440.0 * 2.0_f64.powf((self.note as f64 - 69.0) / 12.0) * ratio;
-        let ratios = [1.0, self.profile.bar_partial_ratio, 17.55];
+        // Retuning keeps every mass and loss, so the fork is resolved at the
+        // note's own frequency and only its frequencies are taken from it.
+        let base = 440.0 * 2.0_f64.powf((f64::from(self.note) - 69.0) / 12.0);
+        let scale = (220.0 / base).clamp(0.15, 4.0);
+        let table = fork_modes(self.profile, frequency, scale);
         for (c, mode) in self.modes.iter_mut().enumerate() {
             let (axis, i) = (c / MODES, c % MODES);
+            let spin = axis_frequency_ratio(self.profile, axis);
             mode.set(
-                frequency * ratios[i] * axis_frequency_ratio(self.profile, axis),
+                table[i].frequency * spin,
                 mode.mass,
                 mode.gamma,
                 self.dt,
@@ -461,6 +469,144 @@ impl Voice {
     }
 }
 
+/// One mode of the assembly: where it sits, how heavy it is, how fast it
+/// dies, and how much of it appears at the tine.
+#[derive(Clone, Copy)]
+struct ModeSpec {
+    frequency: f64,
+    mass: f64,
+    gamma: f64,
+    /// The mode's displacement at the tine, per unit modal coordinate. The
+    /// hammer strikes the tine and the pickup watches the tine, so this one
+    /// number carries the mode into and out of the instrument.
+    tine: f64,
+}
+
+/// The four modes of the tine and its tonebar, at one note.
+///
+/// The tine's first bending mode and the tonebar's lowest are two masses on
+/// two springs joined by a third, standing for the aluminium block. That pair
+/// has two normal modes, and normal modes are independent oscillators, so the
+/// contact solve and the modal advance carry them without knowing anything
+/// changed. What the coupling buys -- the prongs trading energy, a decay that
+/// is not one exponential -- comes out of superposing two modes that damp at
+/// different rates, which is exactly what the fork does.
+///
+/// The tine's own second and third bending modes are left uncoupled. They
+/// couple to the tonebar too, at ratios nobody here has measured; this is the
+/// lowest-order step, not the whole assembly.
+fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES] {
+    let decay = |seconds: f64| 1000.0_f64.ln() / (seconds * scale.sqrt());
+    let tine_mass = profile.modal_mass_kg * scale;
+    let bending = [
+        ModeSpec {
+            frequency: frequency * profile.bar_partial_ratio,
+            mass: tine_mass,
+            gamma: decay(profile.bar_partial_decay_seconds),
+            tine: 1.0,
+        },
+        ModeSpec {
+            frequency: frequency * 17.55,
+            mass: tine_mass,
+            gamma: decay(profile.third_partial_decay_seconds),
+            tine: 1.0,
+        },
+    ];
+    let tine_gamma = decay(profile.decay_seconds);
+    let bar_gamma = decay(profile.tonebar_decay_seconds);
+    let bar_frequency = frequency * profile.tonebar_frequency_ratio;
+    let bar_mass = tine_mass * profile.tonebar_mass_ratio;
+
+    let (first, tonebar) = if profile.tonebar_coupling <= 0.0 {
+        // Uncoupled the pair separates exactly: the tine is the fundamental
+        // it always was, and the tonebar has no participation at the tine, so
+        // it is neither struck nor heard.
+        (
+            ModeSpec {
+                frequency,
+                mass: tine_mass,
+                gamma: tine_gamma,
+                tine: 1.0,
+            },
+            ModeSpec {
+                frequency: bar_frequency,
+                mass: bar_mass,
+                gamma: bar_gamma,
+                tine: 0.0,
+            },
+        )
+    } else {
+        let tine_omega = TAU * frequency;
+        let bar_omega = TAU * bar_frequency;
+        let tine_k = tine_mass * tine_omega * tine_omega;
+        let bar_k = bar_mass * bar_omega * bar_omega;
+        let joint = profile.tonebar_coupling * tine_k;
+        // det(K - w^2 M) = 0 for the two-mass network, solved in closed form.
+        let a = (tine_k + joint) / tine_mass;
+        let b = (bar_k + joint) / bar_mass;
+        let gap = ((a - b) * (a - b) + 4.0 * joint * joint / (tine_mass * bar_mass)).sqrt();
+        let roots = [0.5 * ((a + b) - gap), 0.5 * ((a + b) + gap)];
+        // The root nearer the tine's own frequency is the one the tine leads.
+        let led_by_tine = usize::from(
+            (roots[1] - tine_omega * tine_omega).abs()
+                < (roots[0] - tine_omega * tine_omega).abs(),
+        );
+        let build = |root: f64, lead_is_tine: bool| {
+            // Normalise on whichever prong leads, so neither ratio blows up
+            // as the joint softens.
+            let (tine_amplitude, bar_amplitude) = if lead_is_tine {
+                (1.0, tine_mass * (a - root) / joint)
+            } else {
+                (bar_mass * (b - root) / joint, 1.0)
+            };
+            let mass = tine_mass * tine_amplitude * tine_amplitude
+                + bar_mass * bar_amplitude * bar_amplitude;
+            // Proportional damping: each normal mode loses at the rate its
+            // own energy is shared at. An assumption, and the usual one.
+            let share = tine_mass * tine_amplitude * tine_amplitude / mass;
+            ModeSpec {
+                frequency: root.max(0.0).sqrt() / TAU,
+                mass,
+                gamma: share * tine_gamma + (1.0 - share) * bar_gamma,
+                tine: tine_amplitude,
+            }
+        };
+        let tine_mode = build(roots[led_by_tine], true);
+        let bar_mode = build(roots[1 - led_by_tine], false);
+        // Joining a spring to the tine stiffens it, so an assembled fork
+        // rings sharp -- 83 cents at a tenth of the tine's own stiffness, an
+        // octave at three times it. A real tine is tuned after assembly,
+        // with its tuning spring, so the note is the note whatever the block
+        // is doing. Both normal modes move together, because the technician
+        // moves the tine and not the joint.
+        //
+        // Tune on whichever mode is actually heard, not on whichever started
+        // life as the tine. A strike at the tine drives each mode by its own
+        // participation there and over its mass, and the pickup hears it by
+        // that participation again, so this ranks them. Joined hard enough,
+        // the prongs stop being a tine and a tonebar and the other one leads;
+        // the note still has to come out where it was asked for.
+        let heard = |mode: &ModeSpec| mode.tine * mode.tine / mode.mass;
+        let leader = if heard(&bar_mode) > heard(&tine_mode) {
+            &bar_mode
+        } else {
+            &tine_mode
+        };
+        let retune = frequency / leader.frequency.max(1e-9);
+        (
+            ModeSpec {
+                frequency: tine_mode.frequency * retune,
+                ..tine_mode
+            },
+            ModeSpec {
+                frequency: bar_mode.frequency * retune,
+                ..bar_mode
+            },
+        )
+    };
+    [first, bending[0], bending[1], tonebar]
+}
+
 /// How much faster the second principal axis runs than the first.
 ///
 /// The tine is a circular wire, so its bending rigidity is the same in both
@@ -486,20 +632,43 @@ fn axis_frequency_ratio(profile: Profile, axis: usize) -> f64 {
 /// At `theta = 0` the second axis contributes nothing to the strike, so it is
 /// never driven and never moves: the pair collapses to the single coordinate
 /// this voice had before, exactly and not approximately.
-fn resolve_axes(profile: Profile) -> ([f64; COORDINATES], [[f64; COORDINATES]; 2]) {
+fn resolve_axes(
+    profile: Profile,
+    table: &[ModeSpec; MODES],
+) -> ([f64; COORDINATES], [[f64; COORDINATES]; 2]) {
     let (sin, cos) = profile.tine_boundary_angle_rad.sin_cos();
     let along = [cos, -sin];
     let across = [sin, cos];
-    let shape = [1.0, profile.bar_partial_strike_weight, 0.12];
+    // Shape of each mode at the strike point along the tine. The tonebar's
+    // entry matches the tine's first mode for the same reason its pickup
+    // weight does: it arrives through the root, in that shape.
+    let strike = [1.0, profile.bar_partial_strike_weight, 0.12, 1.0];
     let mut hammer = [0.0; COORDINATES];
     let mut pickup = [[0.0; COORDINATES]; 2];
     for c in 0..COORDINATES {
         let (axis, i) = (c / MODES, c % MODES);
-        hammer[c] = shape[i] * along[axis];
-        pickup[0][c] = PICKUP_WEIGHTS[i] * along[axis];
-        pickup[1][c] = PICKUP_WEIGHTS[i] * across[axis];
+        // How much of the mode stands at the tine at all, then how much of
+        // the tine's motion each direction sees.
+        let reach = table[i].tine;
+        hammer[c] = strike[i] * reach * along[axis];
+        pickup[0][c] = PICKUP_WEIGHTS[i] * reach * along[axis];
+        pickup[1][c] = PICKUP_WEIGHTS[i] * reach * across[axis];
     }
     (hammer, pickup)
+}
+
+/// Keep a mode oscillating.
+///
+/// `Mode::set` takes the square root of `omega^2 - gamma^2`, which is real
+/// only while the mode is underdamped. Every mode that existed before the
+/// tonebar was, because their losses were tied to the tine's. The tonebar can
+/// be asked for a short decay at a low frequency, and a mode that stops
+/// oscillating would come back as NaN rather than as a thud, so its loss is
+/// held below its own frequency.
+fn underdamped(gamma: f64, frequency: f64) -> f64 {
+    // The damped state adds 55 to whatever is stored, so leave it room.
+    let ceiling = 0.9 * TAU * frequency - 55.0;
+    gamma.min(ceiling.max(0.0))
 }
 
 /// Difference quotient of V(d) = k * max(d, 0)^3 / 3.

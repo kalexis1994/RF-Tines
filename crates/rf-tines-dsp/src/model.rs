@@ -85,6 +85,23 @@ pub struct Profile {
     /// two-dimensional flux sees it; on the axis the reduction is exact and
     /// this is zero.
     pub pickup_transverse_offset_m: f64,
+    /// Stiffness of the block joining the two prongs of the fork, relative to
+    /// the tine's own. Zero leaves the tine alone, which is every voicing
+    /// that predates the tonebar; above it the prongs trade energy and the
+    /// fundamental stops decaying as one exponential.
+    pub tonebar_coupling: f64,
+    /// The tonebar's own lowest frequency over the tine's, before coupling.
+    /// The prongs of this fork are deliberately unequal: Muenster and Pfeifle
+    /// measure their fundamentals several hundred to more than 1400 cents
+    /// apart, which is a ratio between about 1.19 and 2.24.
+    pub tonebar_frequency_ratio: f64,
+    /// The tonebar's effective mass over the tine's. A brass bar against a
+    /// steel wire is the heavier prong, so this is above one; how far above
+    /// is an assumption, not a measurement.
+    pub tonebar_mass_ratio: f64,
+    /// T60 of the tonebar alone at A3. The measurements call it the more
+    /// heavily damped prong, so this is shorter than `decay_seconds`.
+    pub tonebar_decay_seconds: f64,
 }
 
 impl Default for Profile {
@@ -110,6 +127,13 @@ impl Default for Profile {
             tine_boundary_angle_rad: 0.0,
             tine_transverse_frequency_ratio: 1.0,
             pickup_transverse_offset_m: 0.0,
+            // Uncoupled, so the tine rings alone exactly as it did before the
+            // second prong existed. The rest describe the prong that is
+            // waiting: a heavier, shorter-ringing bar a fifth or so above.
+            tonebar_coupling: 0.0,
+            tonebar_frequency_ratio: 1.5,
+            tonebar_mass_ratio: 8.0,
+            tonebar_decay_seconds: 4.0,
         }
     }
 }
@@ -350,6 +374,30 @@ impl Profile {
                 -0.003,
                 0.003,
                 "pickup transverse offset outside -0.003..0.003 m",
+            ),
+            (
+                self.tonebar_coupling,
+                0.0,
+                4.0,
+                "tonebar coupling outside 0..4",
+            ),
+            (
+                self.tonebar_frequency_ratio,
+                0.25,
+                4.0,
+                "tonebar frequency ratio outside 0.25..4",
+            ),
+            (
+                self.tonebar_mass_ratio,
+                0.1,
+                100.0,
+                "tonebar mass ratio outside 0.1..100",
+            ),
+            (
+                self.tonebar_decay_seconds,
+                0.05,
+                80.0,
+                "tonebar decay outside 0.05..80 seconds",
             ),
         ] {
             if !value.is_finite() || !(minimum..=maximum).contains(&value) {
