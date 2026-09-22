@@ -54,7 +54,12 @@ pub const OVERSAMPLE: usize = 4;
 /// One shared mechanical key per pitch, with channel-aware key/pedal ownership.
 /// Multiple MIDI channels do not create extra copies of the same physical tine.
 pub struct Engine {
-    voices: [Voice; KEY_COUNT],
+    /// Boxed because the array is 200 KiB and an `Engine` is moved whole
+    /// whenever it is built or returned. A release build elides those moves;
+    /// a debug build copies them, and the laboratory suite overflowed a
+    /// 2 MiB test thread. The allocation happens at construction, which this
+    /// crate's contract allows -- it is rendering that uses fixed-size state.
+    voices: Box<[Voice; KEY_COUNT]>,
     held: [u16; KEY_COUNT],
     sustained: [u16; KEY_COUNT],
     pedals: u16,
@@ -75,9 +80,21 @@ pub struct Engine {
 impl Engine {
     pub fn new(sample_rate: f64, profile: Profile) -> Result<Self, ModelError> {
         profile.validate(sample_rate)?;
-        let voices = core::array::from_fn(|i| {
-            Voice::new_validated(sample_rate, FIRST_NOTE + i as u8, profile)
-        });
+        // Filled one voice at a time through a Vec rather than built as an
+        // array and then boxed: the array form puts the whole 200 KiB on the
+        // stack first, which is the thing being avoided.
+        let mut prepared = Vec::with_capacity(KEY_COUNT);
+        for i in 0..KEY_COUNT {
+            prepared.push(Voice::new_validated(
+                sample_rate,
+                FIRST_NOTE + i as u8,
+                profile,
+            ));
+        }
+        let voices: Box<[Voice; KEY_COUNT]> = prepared
+            .into_boxed_slice()
+            .try_into()
+            .map_err(|_| ModelError("the keyboard did not prepare"))?;
         Ok(Self {
             voices,
             held: [0; KEY_COUNT],
@@ -138,7 +155,7 @@ impl Engine {
         {
             return false;
         }
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             voice.set_profile(profile);
         }
         self.profile = profile;
@@ -279,7 +296,7 @@ impl Engine {
         }
         self.pitch_bends[channel as usize] = normalized;
         let ratio = pitch_ratio(normalized);
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             if voice.is_active() && voice.last_channel == channel {
                 voice.set_pitch_ratio(ratio);
             }
@@ -297,7 +314,7 @@ impl Engine {
         for _ in 0..OVERSAMPLE {
             let mut sum = 0.0;
             let mut close = [0.0; 3];
-            for voice in &mut self.voices {
+            for voice in self.voices.iter_mut() {
                 sum += voice.tick();
                 if let Some(lab) = &self.laboratory
                     && voice.is_active()
@@ -339,14 +356,14 @@ impl Engine {
     }
 
     pub fn reset(&mut self) {
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             voice.reset();
         }
         self.held.fill(0);
         self.sustained.fill(0);
         self.pedals = 0;
         self.pitch_bends.fill(0.0);
-        for voice in &mut self.voices {
+        for voice in self.voices.iter_mut() {
             voice.set_pitch_ratio(1.0);
         }
         self.decimator.clear();
