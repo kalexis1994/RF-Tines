@@ -74,9 +74,15 @@ const BOUNDS: [(f64, f64); 12] = [
 /// is dead. The first holds the manual's floor throughout, the second grades
 /// the treble closed, the third opens the bass wide and turns the axes.
 const STARTS: [[f64; 12]; 3] = [
-    [1.588, 1.588, 0.25, 0.0, 0.3, 1.02, 0.8, 1.4, 0.0, 1.5, 1.0, 2.0],
-    [1.588, 0.508, 0.5, 0.0, 0.3, 1.02, 0.8, 1.4, 0.0, 1.3, 0.6, 1.0],
-    [3.175, 1.0, 0.25, 0.3, 0.5, 1.05, 1.0, 1.4, 0.0, 2.0, 1.0, 0.8],
+    [
+        1.588, 1.588, 0.25, 0.0, 0.3, 1.02, 0.8, 1.4, 0.0, 1.5, 1.0, 2.0,
+    ],
+    [
+        1.588, 0.508, 0.5, 0.0, 0.3, 1.02, 0.8, 1.4, 0.0, 1.3, 0.6, 1.0,
+    ],
+    [
+        3.175, 1.0, 0.25, 0.3, 0.5, 1.05, 1.0, 1.4, 0.0, 2.0, 1.0, 0.8,
+    ],
 ];
 
 /// Gap interpolated smoothly across the keyboard between the two ends.

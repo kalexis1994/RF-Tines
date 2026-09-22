@@ -26,7 +26,6 @@ const SOFTER: f64 = 4.0e8;
 const NOTES: [(u8, &str); 3] = [(40, "E2"), (55, "G3"), (76, "E5")];
 const LAYERS: [(f64, &str); 2] = [(0.3, "p"), (0.85, "f")];
 
-
 fn wedge(_note: u8) -> Profile {
     Profile {
         contact_stiffness: SOFTER,
@@ -56,8 +55,7 @@ fn apart(a: &[f64], b: &[f64]) -> f64 {
                 let frequency = 80.0 * 2.0_f64.powf(step as f64 / 4.0);
                 let (mut re, mut im) = (0.0, 0.0);
                 for (i, value) in block.iter().enumerate() {
-                    let phase =
-                        std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
+                    let phase = std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
                     re += value * phase.cos();
                     im += value * phase.sin();
                 }
@@ -110,7 +108,10 @@ fn main() -> Result<()> {
     println!("distancia espectral entre release y el contacto blando, dB RMS con nivel igualado");
     println!("referencia: los ocho presets estan a 5.32 dB de promedio entre si,");
     println!("y por debajo de ~2 dB dos de ellos son el mismo sonido.\n");
-    println!("{:<8}{:<7}{:>12}{:>14}", "nota", "capa", "distancia", "nivel dB");
+    println!(
+        "{:<8}{:<7}{:>12}{:>14}",
+        "nota", "capa", "distancia", "nivel dB"
+    );
     let mut all = Vec::new();
     for (note, name) in NOTES {
         for (velocity, layer) in LAYERS {

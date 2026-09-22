@@ -9,8 +9,8 @@ pub const PARAMETERS: usize = 19;
 /// the plugin opens on. These were still the retired decade voicing after the
 /// catalog moved; they are now Portable Bark 1972, the current default.
 pub const DEFAULTS: [f64; PARAMETERS] = [
-    0.1, 2.0, 0.6, 0.45, 0.45, 0.5, 0.26, 0.5, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.85, 0.46,
-    0.52, 0.62, 0.18,
+    0.1, 2.0, 0.6, 0.45, 0.45, 0.5, 0.26, 0.5, 0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.85, 0.46, 0.52,
+    0.62, 0.18,
 ];
 
 #[derive(Clone, Debug, PartialEq)]

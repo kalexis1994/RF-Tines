@@ -75,7 +75,10 @@ fn main() -> Result<()> {
     // only in the middle and upper ranges, so the bass is held wide and the
     // treble is free to close. That is a register law with the factory as its
     // source, which is what the earlier constant-gap probe could not express.
-    println!("\n{:<34}{:>14}{:>12}", "hueco por registro", "MSE dB^2", "contra");
+    println!(
+        "\n{:<34}{:>14}{:>12}",
+        "hueco por registro", "MSE dB^2", "contra"
+    );
     for (bass_mm, treble_mm) in [
         (1.588, 1.588),
         (1.588, 1.0),

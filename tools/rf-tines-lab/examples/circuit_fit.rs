@@ -83,9 +83,14 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or("usage: circuit_fit SOURCE_SAMPLES")?;
     let cases = load(Path::new(&source), &TRAINING_NOTES)?;
-    println!("{} casos. Ley de circuito, sin cuna ni tonebar.", cases.len());
-    println!("a batir: {SHIPPING:.2} dB^2
-");
+    println!(
+        "{} casos. Ley de circuito, sin cuna ni tonebar.",
+        cases.len()
+    );
+    println!(
+        "a batir: {SHIPPING:.2} dB^2
+"
+    );
 
     let mut best = STARTS[0];
     let mut best_score = f64::INFINITY;
@@ -118,15 +123,21 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("
-mejor {best_score:.2} dB^2");
+    println!(
+        "
+mejor {best_score:.2} dB^2"
+    );
     for (name, value) in NAMES.iter().zip(best) {
         println!("  {name:<16} {value:.4}");
     }
     println!(
         "
 {} ({:+.1}% contra {SHIPPING:.2})",
-        if best_score <= SHIPPING { "CUMPLE" } else { "NO CUMPLE" },
+        if best_score <= SHIPPING {
+            "CUMPLE"
+        } else {
+            "NO CUMPLE"
+        },
         (best_score / SHIPPING - 1.0) * 100.0
     );
     Ok(())

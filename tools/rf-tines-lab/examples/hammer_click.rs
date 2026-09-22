@@ -84,15 +84,17 @@ fn band(signal: &[f64], from: usize, length: usize, low: f64, high: f64) -> f64 
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("G3 fuerte. 'exceso' = los primeros 12 ms contra el cuerpo, en 5-10 kHz.");
-    println!("El Rhodes real, medido igual, esta 67 dB por debajo del modelo actual.
-");
-    println!("{:<14}{:>12}{:>12}{:>12}", "rigidez", "contacto us", "exceso dB", "cuerpo dB");
+    println!(
+        "El Rhodes real, medido igual, esta 67 dB por debajo del modelo actual.
+"
+    );
+    println!(
+        "{:<14}{:>12}{:>12}{:>12}",
+        "rigidez", "contacto us", "exceso dB", "cuerpo dB"
+    );
     for stiffness in [1.0e8, 4.0e8, 1.6e9, 6.4e9, 4.0e10, 1.0e12] {
         let signal = render(stiffness)?;
-        let onset = signal
-            .iter()
-            .position(|x| x.abs() > 1e-4)
-            .unwrap_or(0);
+        let onset = signal.iter().position(|x| x.abs() > 1e-4).unwrap_or(0);
         let knock = band(&signal, onset, (RATE * 0.012) as usize, 5000.0, 10_000.0);
         let body = band(
             &signal,

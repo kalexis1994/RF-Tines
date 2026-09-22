@@ -63,12 +63,18 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or("usage: tonebar_verdict SOURCE_SAMPLES")?;
     let cases = load(Path::new(&source), &TRAINING_NOTES)?;
-    println!("{} casos. Todo fijo en el mejor punto legal previo.", cases.len());
+    println!(
+        "{} casos. Todo fijo en el mejor punto legal previo.",
+        cases.len()
+    );
     println!("sin tonebar alcanzaba {REACHED:.2}; la geometria ilegal {SHIPPING:.2}\n");
 
     let none = score(&cases, 0.0, 1.5, 4.0);
     println!("union 0 (apagado): {none:.2} dB^2\n");
-    println!("{:<9}{:<9}{:>12}{:>12}", "union", "razon", "MSE", "contra 0");
+    println!(
+        "{:<9}{:<9}{:>12}{:>12}",
+        "union", "razon", "MSE", "contra 0"
+    );
     let mut best = (none, 0.0, 0.0, 0.0);
     for ratio in [1.19, 1.4, 1.7, 2.0, 2.24] {
         for coupling in [0.1, 0.3, 0.8, 1.6, 3.0] {

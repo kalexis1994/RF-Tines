@@ -87,12 +87,26 @@ fn instrument_programs_have_distinct_physics_and_bounded_dense_chords() {
             let y = factory[b].3;
             assert_ne!(
                 [
-                    x.hardness, x.sustain, x.bell, x.distance_mm, x.alignment_mm,
-                    x.hammer, x.tine, x.pole, x.twist
+                    x.hardness,
+                    x.sustain,
+                    x.bell,
+                    x.distance_mm,
+                    x.alignment_mm,
+                    x.hammer,
+                    x.tine,
+                    x.pole,
+                    x.twist
                 ],
                 [
-                    y.hardness, y.sustain, y.bell, y.distance_mm, y.alignment_mm,
-                    y.hammer, y.tine, y.pole, y.twist
+                    y.hardness,
+                    y.sustain,
+                    y.bell,
+                    y.distance_mm,
+                    y.alignment_mm,
+                    y.hammer,
+                    y.tine,
+                    y.pole,
+                    y.twist
                 ]
             );
         }
@@ -196,7 +210,9 @@ fn a_suitcase_does_not_sound_like_the_stage_it_shares_a_mechanism_with() {
             .iter()
             .zip(&dry_right)
             .zip(wet.iter().zip(&wet_right))
-            .fold(0.0_f32, |m, ((a, b), (c, d))| m.max(((a + b) - (c + d)).abs()));
+            .fold(0.0_f32, |m, ((a, b), (c, d))| {
+                m.max(((a + b) - (c + d)).abs())
+            });
         assert!(
             apart > 0.05 * reach,
             "{stage} and {suitcase} came out the same: {apart} against {reach}"
@@ -317,7 +333,10 @@ fn every_advertised_preset_is_audibly_its_own_instrument() {
     // around 6 dB; this floor is well under it, so it catches a collapse
     // rather than fencing in the current numbers.
     let mean = spread.iter().sum::<f64>() / spread.len() as f64;
-    assert!(mean > 4.0, "the set has flattened to a mean of {mean:.2} dB");
+    assert!(
+        mean > 4.0,
+        "the set has flattened to a mean of {mean:.2} dB"
+    );
 }
 
 /// Every preset keeps the hammer on the tine for a time a real hammer takes.

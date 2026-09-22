@@ -115,8 +115,7 @@ fn ripple(x: &[f64]) -> f64 {
             let from = start + i * width;
             let end = (from + width).min(x.len());
             (end > from + width / 2).then(|| {
-                let mean = x[from..end].iter().map(|v| v * v).sum::<f64>()
-                    / (end - from) as f64;
+                let mean = x[from..end].iter().map(|v| v * v).sum::<f64>() / (end - from) as f64;
                 10.0 * mean.max(1e-30).log10()
             })
         })
@@ -153,8 +152,10 @@ fn main() -> Result<()> {
     let source = Path::new(&source);
     let profile = baseline();
 
-    println!("cada fila: el Rhodes real, el modelo, y lo que falta o sobra.
-");
+    println!(
+        "cada fila: el Rhodes real, el modelo, y lo que falta o sobra.
+"
+    );
     println!(
         "{:<9}{:<8}{:>9}{:>9}{:>9}{:>9}",
         "caso", "eje", "real", "modelo", "falta", ""

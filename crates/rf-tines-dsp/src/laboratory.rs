@@ -242,8 +242,7 @@ pub fn reluctance_voltage(
     displacement_m: f64,
     velocity_m_s: f64,
 ) -> f64 {
-    -0.015 * pickup.slope_wb_per_m(displacement_m) * velocity_m_s
-        / APERTURE_PICKUP.flux_scale_wb
+    -0.015 * pickup.slope_wb_per_m(displacement_m) * velocity_m_s / APERTURE_PICKUP.flux_scale_wb
 }
 
 pub(crate) struct Laboratory {

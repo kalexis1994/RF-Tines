@@ -66,9 +66,14 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or("usage: softened_presets SOURCE_SAMPLES")?;
     let cases = load(Path::new(&source), &TRAINING)?;
-    println!("perfil del preset por defecto, dureza 0.46
-");
-    println!("{:<12}{:>14}{:>12}{:>14}", "", "rigidez", "MSE", "tick 5-10k");
+    println!(
+        "perfil del preset por defecto, dureza 0.46
+"
+    );
+    println!(
+        "{:<12}{:>14}{:>12}{:>14}",
+        "", "rigidez", "MSE", "tick 5-10k"
+    );
     let mut first = None;
     for (label, stiffness) in [("antes", BEFORE), ("ahora", AFTER)] {
         let (mse, _) = score_with(&cases, baseline(), false, |c, _, seconds| {
@@ -85,8 +90,11 @@ fn main() -> Result<()> {
         println!("{label:<12}{stiffness:>14.1e}{mse:>12.2}{click:>14.1}");
         let base = *first.get_or_insert(mse);
         if label == "ahora" {
-            println!("
-cambio en el objetivo: {:+.1}%", (mse / base - 1.0) * 100.0);
+            println!(
+                "
+cambio en el objetivo: {:+.1}%",
+                (mse / base - 1.0) * 100.0
+            );
         }
     }
     Ok(())

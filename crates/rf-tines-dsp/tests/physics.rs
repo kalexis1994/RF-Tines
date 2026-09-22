@@ -180,6 +180,37 @@ fn one_channels_panic_does_not_kill_another_channels_held_key() {
     assert_eq!(engine.probe(57).unwrap().mechanical_energy_j, 0.0);
 }
 
+/// Pitch by a harmonic scan rather than by counting zero crossings.
+///
+/// Counting crossings measures whatever partial happens to cross, so a voice
+/// carrying a strong inharmonic partial reads sharp even when its pitch is
+/// exact. That already caught this project out once; the fix is the method,
+/// not the tolerance.
+fn scanned_pitch(samples: &[f64], rate: f64, expected: f64) -> f64 {
+    let magnitude = |frequency: f64| {
+        let (mut re, mut im) = (0.0, 0.0);
+        let n = samples.len();
+        for (i, value) in samples.iter().enumerate() {
+            let w = 0.5 - 0.5 * (core::f64::consts::TAU * i as f64 / n as f64).cos();
+            let phase = core::f64::consts::TAU * frequency * i as f64 / rate;
+            re += value * w * phase.cos();
+            im += value * w * phase.sin();
+        }
+        (re * re + im * im).sqrt() / n as f64
+    };
+    let mut best = (0.0, expected);
+    for step in -300..=300 {
+        let f = expected * 2.0_f64.powf(f64::from(step) / 12_000.0);
+        let score: f64 = (1..=4)
+            .map(|h| magnitude(f * f64::from(h)) / f64::from(h))
+            .sum();
+        if score > best.0 {
+            best = (score, f);
+        }
+    }
+    best.1
+}
+
 #[test]
 fn sustained_fundamental_tracks_target_pitch_at_all_output_rates() {
     for rate in [44_100.0, 48_000.0, 96_000.0] {
@@ -190,20 +221,13 @@ fn sustained_fundamental_tracks_target_pitch_at_all_output_rates() {
             for _ in 0..(internal_rate * 0.12) as usize {
                 voice.tick();
             }
-            let mut previous = voice.probe().displacement_m;
-            let mut crossings = Vec::new();
-            for frame in 0..(internal_rate * 0.12) as usize {
+            let mut samples = Vec::new();
+            for _ in 0..(internal_rate * 0.25) as usize {
                 voice.tick();
-                let now = voice.probe().displacement_m;
-                if previous < 0.0 && now >= 0.0 {
-                    crossings.push(frame as f64 + (-previous) / (now - previous));
-                }
-                previous = now;
+                samples.push(voice.probe().displacement_m);
             }
-            assert!(crossings.len() > 2);
-            let frequency = (crossings.len() - 1) as f64 * internal_rate
-                / (crossings.last().unwrap() - crossings[0]);
             let expected = 440.0 * 2.0_f64.powf((note as f64 - 69.0) / 12.0);
+            let frequency = scanned_pitch(&samples, internal_rate, expected);
             let cents = 1200.0 * (frequency / expected).log2();
             assert!(cents.abs() < 0.1, "{rate}/{note}: {cents} cents");
         }
@@ -225,19 +249,13 @@ fn pitch_ratio_retunes_a_ringing_voice_without_resetting_it() {
     let after = voice.probe();
     assert_eq!(after.displacement_m, before.displacement_m);
     assert_eq!(after.velocity_m_s, before.velocity_m_s);
-    let mut previous = after.displacement_m;
-    let mut crossings = Vec::new();
-    for frame in 0..(internal_rate * 0.12) as usize {
+    let mut samples = Vec::new();
+    for _ in 0..(internal_rate * 0.25) as usize {
         voice.tick();
-        let now = voice.probe().displacement_m;
-        if previous < 0.0 && now >= 0.0 {
-            crossings.push(frame as f64 + (-previous) / (now - previous));
-        }
-        previous = now;
+        samples.push(voice.probe().displacement_m);
     }
-    let frequency =
-        (crossings.len() - 1) as f64 * internal_rate / (crossings.last().unwrap() - crossings[0]);
     let expected = 440.0 * 2.0_f64.powf((57.0 - 69.0) / 12.0) * ratio;
+    let frequency = scanned_pitch(&samples, internal_rate, expected);
     let cents = 1200.0 * (frequency / expected).log2();
     assert!(cents.abs() < 0.1, "pitch bend: {cents} cents");
     assert!(!voice.set_pitch_ratio(f64::NAN));
@@ -582,7 +600,10 @@ fn rotating_degenerate_axes_changes_nothing_at_all() {
         apart = apart.max((left - right).abs());
     }
     assert!(moved > 1e-6, "compared two silences");
-    assert!(apart <= 1e-7 * moved, "{apart} apart on a signal of {moved}");
+    assert!(
+        apart <= 1e-7 * moved,
+        "{apart} apart on a signal of {moved}"
+    );
     // The cancellation is exact in arithmetic and a rounding crumb in floating
     // point, so the transverse motion is judged against the swing the note
     // actually reaches rather than against whatever it happens to be at a zero
@@ -601,7 +622,10 @@ fn rotating_degenerate_axes_changes_nothing_at_all() {
         (swing, leak)
     };
     assert!(swing > 1e-6, "the turned voice never moved");
-    assert!(leak <= 1e-12 * swing, "leaked {leak} against a swing of {swing}");
+    assert!(
+        leak <= 1e-12 * swing,
+        "leaked {leak} against a swing of {swing}"
+    );
 }
 
 /// With the axes split as well as turned, the tip stops travelling on a line.
@@ -633,10 +657,7 @@ fn split_axes_open_the_tip_trajectory_into_an_ellipse() {
     }
     assert!(across > 0.0, "the second axis never moved");
     // The transverse swing is a real share of the driven one, not a rounding crumb.
-    assert!(
-        across > along * 0.01,
-        "transverse {across} against {along}"
-    );
+    assert!(across > along * 0.01, "transverse {across} against {along}");
     assert!(area > 0.0, "the tip stayed on a line");
 }
 
@@ -646,8 +667,9 @@ fn split_axes_open_the_tip_trajectory_into_an_ellipse() {
 /// ring cancel.
 #[test]
 fn the_planar_flux_agrees_with_the_axial_reduction_on_the_axis() {
-    use rf_tines_dsp::{APERTURE_PICKUP, AxialAperture, PlanarAperture, aperture_voltage,
-        planar_voltage};
+    use rf_tines_dsp::{
+        APERTURE_PICKUP, AxialAperture, PlanarAperture, aperture_voltage, planar_voltage,
+    };
     let axial = AxialAperture::new(APERTURE_PICKUP).unwrap();
     let planar = PlanarAperture::new(APERTURE_PICKUP).unwrap();
     let places = [-0.003, -0.0005, 0.0, 0.0002, 0.001, 0.004];
@@ -814,7 +836,16 @@ fn a_two_plane_profile_is_compensated_through_its_own_pickup() {
 /// struck nor heard, and the tine's mode is the fundamental it always was.
 #[test]
 fn an_unjoined_tonebar_leaves_the_tine_exactly_as_it_was() {
-    for profile in [Profile::default(), Profile::calibrated()] {
+    // Without elastic mixing *and* without the clamp, the bar reaches the
+    // tine by no path at all and cannot be heard whatever it is made of.
+    // Those were one setting until `tonebar_clamp` separated them; see
+    // docs/PLAYABLE-TONEBAR.md. This test is about the mixing, so it pins
+    // the clamp rather than relying on a default that has since moved.
+    for base in [Profile::default(), Profile::calibrated()] {
+        let profile = Profile {
+            tonebar_clamp: 0.0,
+            ..base
+        };
         assert_eq!(profile.tonebar_coupling, 0.0);
         for note in [FIRST_NOTE, 55, LAST_NOTE] {
             let mut alone = Voice::new(48_000.0, note, profile).unwrap();
@@ -1212,8 +1243,7 @@ fn a_voice_rings_at_one_pitch_and_not_two() {
             for (i, value) in samples.iter().enumerate() {
                 let turn = i as f64 / samples.len() as f64;
                 let window = 0.5 - 0.5 * (std::f64::consts::TAU * turn).cos();
-                let phase =
-                    std::f64::consts::TAU * frequency * i as f64 / (48_000.0 * 4.0);
+                let phase = std::f64::consts::TAU * frequency * i as f64 / (48_000.0 * 4.0);
                 re += value * window * phase.cos();
                 im += value * window * phase.sin();
             }
@@ -1338,4 +1368,3 @@ fn the_circuit_law_has_one_zero_and_no_geometry_adds_another() {
     }
     assert_eq!(checked, 900);
 }
-

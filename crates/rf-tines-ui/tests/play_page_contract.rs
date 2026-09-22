@@ -50,7 +50,11 @@ fn occurrences(id: &str) -> usize {
 #[test]
 fn every_id_the_panel_resolves_exists_exactly_once_on_the_page() {
     let controls = control_ids();
-    assert!(controls.len() >= 14, "only found {} controls", controls.len());
+    assert!(
+        controls.len() >= 14,
+        "only found {} controls",
+        controls.len()
+    );
     let mut wanted: Vec<String> = FIXED.iter().map(|id| (*id).to_string()).collect();
     for id in &controls {
         wanted.push(id.clone());
@@ -83,9 +87,16 @@ fn the_page_has_no_duplicate_ids_at_all() {
         })
         .collect();
     seen.sort_unstable();
-    let mut duplicates: Vec<&str> = seen.windows(2).filter(|w| w[0] == w[1]).map(|w| w[0]).collect();
+    let mut duplicates: Vec<&str> = seen
+        .windows(2)
+        .filter(|w| w[0] == w[1])
+        .map(|w| w[0])
+        .collect();
     duplicates.dedup();
-    assert!(duplicates.is_empty(), "duplicated on the page: {duplicates:?}");
+    assert!(
+        duplicates.is_empty(),
+        "duplicated on the page: {duplicates:?}"
+    );
 }
 
 /// Every control the page offers must be one the panel knows how to drive,
@@ -99,7 +110,9 @@ fn the_page_offers_no_control_the_panel_ignores() {
         let open = PAGE[..at].rfind('<').expect("the attribute sits in a tag");
         let close = at + PAGE[at..].find('>').expect("the tag closes");
         let tag = &PAGE[open..close];
-        let found = tag.find("id=\"").expect("a parameter control carries an id");
+        let found = tag
+            .find("id=\"")
+            .expect("a parameter control carries an id");
         let rest = &tag[found + 4..];
         let id = &rest[..rest.find('"').expect("closed id")];
         assert!(

@@ -22,8 +22,7 @@ const RATE: u32 = 48_000;
 const SECONDS: f64 = 3.0;
 /// Exactly what the search left; see docs/WEDGE-POLE.md.
 const WINNER: [f64; 12] = [
-    1.5880, 0.9213, 0.6359, -0.4375, 0.3250, 1.0434, 1.3250, 1.1656, 0.5625, 1.4016, 1.0000,
-    1.0625,
+    1.5880, 0.9213, 0.6359, -0.4375, 0.3250, 1.0434, 1.3250, 1.1656, 0.5625, 1.4016, 1.0000, 1.0625,
 ];
 const NOTES: [(u8, &str); 3] = [(40, "E2"), (55, "G3"), (76, "E5")];
 const LAYERS: [(f64, &str); 2] = [(0.3, "p"), (0.85, "f")];
@@ -74,8 +73,7 @@ fn apart(a: &[f64], b: &[f64]) -> f64 {
                 let frequency = 80.0 * 2.0_f64.powf(step as f64 / 4.0);
                 let (mut re, mut im) = (0.0, 0.0);
                 for (i, value) in block.iter().enumerate() {
-                    let phase =
-                        std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
+                    let phase = std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
                     re += value * phase.cos();
                     im += value * phase.sin();
                 }
@@ -128,7 +126,10 @@ fn main() -> Result<()> {
     println!("distancia espectral entre release y la cuna, dB RMS con nivel igualado");
     println!("referencia: los ocho presets estan a 5.32 dB de promedio entre si,");
     println!("y por debajo de ~2 dB dos de ellos son el mismo sonido.\n");
-    println!("{:<8}{:<7}{:>12}{:>14}", "nota", "capa", "distancia", "nivel dB");
+    println!(
+        "{:<8}{:<7}{:>12}{:>14}",
+        "nota", "capa", "distancia", "nivel dB"
+    );
     let mut all = Vec::new();
     for (note, name) in NOTES {
         for (velocity, layer) in LAYERS {

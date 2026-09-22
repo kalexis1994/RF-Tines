@@ -64,6 +64,10 @@ pub struct Profile {
     pub bar_partial_decay_seconds: f64,
     /// Third bending partial T60 at A3.
     pub third_partial_decay_seconds: f64,
+    /// How loudly the struck frame answers, as a velocity the pickup sees per
+    /// newton of contact force. Zero leaves the voice exactly as it was.
+    /// See docs/STRUCK-FRAME.md.
+    pub frame_gain: f64,
     /// Second bending partial frequency over the fundamental. The uniform
     /// clamped bar gives 6.267; the retained recordings show 6.01.
     pub bar_partial_ratio: f64,
@@ -103,6 +107,28 @@ pub struct Profile {
     /// that predates the tonebar; above it the prongs trade energy and the
     /// fundamental stops decaying as one exponential.
     pub tonebar_coupling: f64,
+    /// How much of the tonebar's motion reaches the tine through the clamp
+    /// that holds them together, independent of any elastic mixing.
+    ///
+    /// A Rhodes tine is screwed to its tonebar. The bar carrying the tine's
+    /// root is why the bar is heard at the tip at all, and the hammer's blow
+    /// reacts against the bar through the same screw, which is why it is
+    /// struck. Neither depends on how strongly the two resonances pull on
+    /// each other's frequencies, and `tonebar_coupling` was conflating the
+    /// two: at zero the bar went silent, and the coupling that made it
+    /// audible also made it beat. A listener heard that beating as "como una
+    /// cuerda". See docs/PLAYABLE-TONEBAR.md.
+    ///
+    /// Zero reproduces the previous behaviour exactly.
+    pub tonebar_clamp: f64,
+    /// Frequency at which the bar's inertia has halved what the clamp passes.
+    ///
+    /// The clamp is rigid but the bar behind it is heavy, so its response to
+    /// the tine's root falls as 1/(1 + (f / this)^2). Fixing this at 220 Hz
+    /// because the rest of the voice scales there was an assumption, not a
+    /// measurement; see docs/PLAYABLE-TONEBAR.md for the value fitted against
+    /// the reference and what it cost.
+    pub tonebar_clamp_reference_hz: f64,
     /// The tonebar's own lowest frequency over the tine's, before coupling.
     /// The prongs of this fork are deliberately unequal: Muenster and Pfeifle
     /// measure their fundamentals several hundred to more than 1400 cents
@@ -144,6 +170,7 @@ impl Default for Profile {
             decay_seconds: 5.0,
             bar_partial_decay_seconds: 0.16,
             third_partial_decay_seconds: 0.055,
+            frame_gain: 0.0,
             bar_partial_ratio: 6.267,
             bar_partial_strike_weight: -0.3,
             pickup_law: PickupLaw::Production,
@@ -159,9 +186,11 @@ impl Default for Profile {
             // second prong existed. The rest describe the prong that is
             // waiting: a heavier, shorter-ringing bar a fifth or so above.
             tonebar_coupling: 0.0,
-            tonebar_frequency_ratio: 1.5,
-            tonebar_mass_ratio: 8.0,
-            tonebar_decay_seconds: 4.0,
+            tonebar_clamp: 0.6,
+            tonebar_clamp_reference_hz: 210.0,
+            tonebar_frequency_ratio: 1.75,
+            tonebar_mass_ratio: 2.0,
+            tonebar_decay_seconds: 0.30,
             pickup_pole_wedge: 0.0,
             pickup_circuit_floor: 1.0,
         }

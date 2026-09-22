@@ -25,8 +25,10 @@ fn main() -> Result<()> {
         .ok_or("usage: click_cost SOURCE_SAMPLES")?;
     let cases = load(Path::new(&source), &TRAINING)?;
     println!("notas de entrenamiento. La rigidez que sale en release es 4e10.");
-    println!("El control de dureza solo llega a 1.6e9 en su extremo blando.
-");
+    println!(
+        "El control de dureza solo llega a 1.6e9 en su extremo blando.
+"
+    );
     println!("{:<14}{:>12}{:>12}", "rigidez", "MSE", "contra 4e10");
     let mut reference = None;
     for stiffness in [1.0e8, 4.0e8, 1.6e9, 6.4e9, 4.0e10, 1.0e12] {
@@ -51,8 +53,10 @@ fn main() -> Result<()> {
         render(c, baseline(), seconds)
     })?
     .0;
-    println!("
-referencia (4e10): {base:.2} dB^2");
+    println!(
+        "
+referencia (4e10): {base:.2} dB^2"
+    );
     for stiffness in [1.0e8, 4.0e8, 1.6e9] {
         let (mse, _) = score_with(&cases, baseline(), false, |c, _, seconds| {
             render(

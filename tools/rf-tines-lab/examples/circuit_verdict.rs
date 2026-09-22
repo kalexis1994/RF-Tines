@@ -90,7 +90,10 @@ fn main() -> Result<()> {
         .ok_or("usage: circuit_verdict SOURCE_SAMPLES")?;
     let source = Path::new(&source);
 
-    println!("{:<12}{:>12}{:>12}{:>12}", "notas", "release", "circuito", "cambio");
+    println!(
+        "{:<12}{:>12}{:>12}{:>12}",
+        "notas", "release", "circuito", "cambio"
+    );
     for (label, notes) in [("entrenam.", &TRAINING[..]), ("reservadas", &HELD_OUT[..])] {
         let cases = load(source, notes)?;
         let shipping = score(&cases, |_| baseline())?;
@@ -101,9 +104,14 @@ fn main() -> Result<()> {
         );
     }
 
-    println!("
-por nota reservada:");
-    println!("{:>6}{:>12}{:>12}{:>12}", "nota", "release", "circuito", "cambio");
+    println!(
+        "
+por nota reservada:"
+    );
+    println!(
+        "{:>6}{:>12}{:>12}{:>12}",
+        "nota", "release", "circuito", "cambio"
+    );
     let mut regressed = Vec::new();
     for note in HELD_OUT {
         let cases = load(source, &[note])?;
@@ -125,8 +133,10 @@ por nota reservada:");
         }
     );
 
-    println!("
-una sola altura?");
+    println!(
+        "
+una sola altura?"
+    );
     let mut two_pitched = Vec::new();
     for note in [28, 40, 55, 76, 100] {
         let found = second_pitches(candidate(note), note)?;

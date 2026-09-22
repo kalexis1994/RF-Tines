@@ -67,8 +67,7 @@ fn apart(a: &[f64], b: &[f64]) -> f64 {
                 let frequency = 80.0 * 2.0_f64.powf(step as f64 / 4.0);
                 let (mut re, mut im) = (0.0, 0.0);
                 for (i, value) in block.iter().enumerate() {
-                    let phase =
-                        std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
+                    let phase = std::f64::consts::TAU * frequency * i as f64 / f64::from(RATE);
                     re += value * phase.cos();
                     im += value * phase.sin();
                 }
@@ -121,7 +120,10 @@ fn main() -> Result<()> {
     println!("distancia espectral entre release y el circuito, dB RMS con nivel igualado");
     println!("referencia: los ocho presets estan a 5.32 dB de promedio entre si,");
     println!("y por debajo de ~2 dB dos de ellos son el mismo sonido.\n");
-    println!("{:<8}{:<7}{:>12}{:>14}", "nota", "capa", "distancia", "nivel dB");
+    println!(
+        "{:<8}{:<7}{:>12}{:>14}",
+        "nota", "capa", "distancia", "nivel dB"
+    );
     let mut all = Vec::new();
     for (note, name) in NOTES {
         for (velocity, layer) in LAYERS {
@@ -133,7 +135,10 @@ fn main() -> Result<()> {
             println!("{name:<8}{layer:<7}{distance:>12.2}{level:>+14.1}");
             all.push(distance);
             write_wav(&out.join(format!("{name}-{layer}-release.wav")), &shipping)?;
-            write_wav(&out.join(format!("{name}-{layer}-circuito.wav")), &candidate)?;
+            write_wav(
+                &out.join(format!("{name}-{layer}-circuito.wav")),
+                &candidate,
+            )?;
         }
     }
     println!(

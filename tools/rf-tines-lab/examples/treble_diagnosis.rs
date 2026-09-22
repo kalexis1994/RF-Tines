@@ -49,8 +49,10 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or("usage: treble_diagnosis SOURCE_SAMPLES")?;
     let source = Path::new(&source);
-    println!("error del candidato por armonico, dB. + = el modelo tiene de MAS.
-");
+    println!(
+        "error del candidato por armonico, dB. + = el modelo tiene de MAS.
+"
+    );
     for note in NOTES {
         let cases = load(source, &[note])?;
         let (_, rows) = score_with(&cases, baseline(), true, |c, _, seconds| {

@@ -9,6 +9,12 @@ use core::f64::consts::TAU;
 /// entries are the coupled pair's normal modes, so index 0 is the
 /// tine-dominated one and index 3 the tonebar-dominated one; the bar and
 /// third partials keep their places in between.
+///
+/// The fourth and fifth bending modes, at 34.39x and 56.84x, were added and
+/// taken back out: they land exactly in the two bands the attack is short in
+/// and lifted them 19 and 31 dB, and the change was still 52 dB under the
+/// peak and inaudible. The reference's attack is broadband, and modes are
+/// tones. docs/HIGH-BENDING-MODES.md has the measurements.
 const MODES: usize = 4;
 /// The two principal bending directions of the tine. A circular wire bends the
 /// same way in both; its support does not, which is what separates them.
@@ -19,6 +25,30 @@ const COORDINATES: usize = MODES * AXES;
 /// point. The tonebar's entry matches the tine's first mode, because the
 /// tonebar reaches the tip through exactly that shape: it moves the root the
 /// tine is clamped to and nothing else.
+///
+/// These three are not a beam: no position on a clamped-free cantilever
+/// produces 1.0, 0.8, 0.6, and the closest fit wants alternating signs and
+/// leaves a residual of 1.92. They are kept because everything was calibrated
+/// against them, but they are not derived from the geometry the rest of the
+/// voice is. See docs/HIGH-BENDING-MODES.md.
+/// Resonances of the struck frame, fixed in hertz because the structure does
+/// not retune itself when another key is pressed. Spaced irregularly so they
+/// never read as a harmonic series of anything, and started above 2 kHz
+/// because the attack already carries 15 dB more than the reference at 750 Hz
+/// and 8 dB more at 1500.
+const FRAME_MODES: usize = 12;
+const FRAME_HZ: [f64; FRAME_MODES] = [
+    2170.0, 2580.0, 3010.0, 3490.0, 4060.0, 4730.0, 5410.0, 6220.0, 7050.0, 7960.0, 8930.0, 9870.0,
+];
+/// How hard the blow drives each one, following the slope the reference shows
+/// across the band: about 20 dB down an octave above 1.5 kHz.
+const FRAME_LEVELS: [f64; FRAME_MODES] = [
+    1.0, 0.72, 0.52, 0.37, 0.26, 0.19, 0.13, 0.095, 0.068, 0.049, 0.035, 0.025,
+];
+/// T60 of every frame resonance, in seconds. The reference's attack noise is
+/// still there at 12 to 24 ms, which is what sets this.
+const FRAME_DECAY_SECONDS: f64 = 0.020;
+
 const PICKUP_WEIGHTS: [f64; MODES] = [1.0, 0.8, 0.6, 1.0];
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -133,6 +163,10 @@ pub struct Voice {
     active: bool,
     force: f64,
     signal: f64,
+    /// Two-pole state and coefficients per frame resonance. The coefficients
+    /// depend on the sample rate, so they are prepared once per voice.
+    frame_state: [[f64; 2]; FRAME_MODES],
+    frame_coefficients: [(f64, f64); FRAME_MODES],
     pub(crate) last_channel: u8,
 }
 
@@ -230,6 +264,8 @@ impl Voice {
             active: false,
             force: 0.0,
             signal: 0.0,
+            frame_state: [[0.0; 2]; FRAME_MODES],
+            frame_coefficients: frame_coefficients(sample_rate),
             last_channel: 0,
         }
     }
@@ -302,6 +338,7 @@ impl Voice {
         self.hammer_v =
             self.profile.maximum_hammer_speed_m_s * velocity.powf(self.profile.velocity_exponent);
         self.contact = true;
+        self.frame_state = [[0.0; 2]; FRAME_MODES];
         self.damped = false;
         self.active = true;
         true
@@ -346,7 +383,9 @@ impl Voice {
                 mode.advance_free(self.damped);
             }
         }
-        let (position, velocity) = self.tip();
+        let (position, mut velocity) = self.tip();
+        let drive = if self.contact { self.force } else { 0.0 };
+        velocity[0] += self.frame(drive);
         // Smooth, bounded flux linkage surrogate. Gap never reaches zero.
         // Phi = 1 / sqrt(1 + ((offset + position) / gap)^2).
         // Output follows -dPhi/dt, not displacement and not a post-mix clipper.
@@ -365,6 +404,43 @@ impl Voice {
             self.reset();
         }
         self.signal
+    }
+
+    /// The frame's answer to the blow, as a velocity the pickup sees.
+    ///
+    /// The hammer shakes the harp, the frame and the pickup assembly, and a
+    /// magnetic pickup senses the tine's motion *relative to itself*, so a
+    /// pickup that moves is a signal. Two things make this the frame and not
+    /// the tine. The tine has one bending mode in 1.5 to 10 kHz at MIDI 76
+    /// and cannot furnish a band. And in the reference the attack's spectrum
+    /// does not move with the note: across 3.8 octaves of fundamental, 3 kHz
+    /// sits 20.5 to 22.3 dB under 1.5 kHz, always. docs/STRUCK-FRAME.md has
+    /// that measurement and the predictions this was built against.
+    ///
+    /// Fixed frequencies, deliberately not a harmonic series, driven by the
+    /// contact force. Energy spread over tens of milliseconds without a peak
+    /// is what a bank of resonances does and what a gated noise burst could
+    /// not; docs/CONTACT-NOISE.md is why that was tried first.
+    fn frame(&mut self, drive: f64) -> f64 {
+        let gain = self.profile.frame_gain;
+        if gain <= 0.0 {
+            return 0.0;
+        }
+        let coefficients = self.frame_coefficients;
+        let mut sum = 0.0;
+        let mut alive = false;
+        for (i, state) in self.frame_state.iter_mut().enumerate() {
+            let (a1, a2) = coefficients[i];
+            let y = a1 * state[0] - a2 * state[1] + drive * FRAME_LEVELS[i];
+            state[1] = state[0];
+            state[0] = y;
+            sum += y;
+            alive |= y.abs() > 1e-20;
+        }
+        if !alive && drive == 0.0 {
+            return 0.0;
+        }
+        gain * sum
     }
 
     fn advance_contact(&mut self, h: f64) {
@@ -528,9 +604,12 @@ fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES]
     let bar_mass = tine_mass * profile.tonebar_mass_ratio;
 
     let (first, tonebar) = if profile.tonebar_coupling <= 0.0 {
-        // Uncoupled the pair separates exactly: the tine is the fundamental
-        // it always was, and the tonebar has no participation at the tine, so
-        // it is neither struck nor heard.
+        // Without elastic mixing the pair separates exactly in frequency: the
+        // tine is the fundamental it always was and the bar keeps its own.
+        // The bar is still bolted to the tine, though, so `tonebar_clamp`
+        // says how much of it arrives at the tine's root -- which is both how
+        // hard the blow drives it and how loudly it is heard. At zero this is
+        // the behaviour that shipped, where the bar was silent.
         (
             ModeSpec {
                 frequency,
@@ -542,7 +621,17 @@ fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES]
                 frequency: bar_frequency,
                 mass: bar_mass,
                 gamma: bar_gamma,
-                tine: 0.0,
+                // Inertially limited. The clamp is rigid, but the bar behind
+                // it is heavy, and a heavy bar cannot follow a fast root
+                // motion: its response falls as 1/(1 + (f/f_ref)^2) with the
+                // note. Without this the bar takes the hammer's energy in the
+                // treble and dies with it -- measured at 14.7 dB of lost
+                // level at note 93, which a listener heard as the top of the
+                // keyboard dying.
+                tine: {
+                    let ratio = frequency / profile.tonebar_clamp_reference_hz.max(1e-6);
+                    profile.tonebar_clamp / (1.0 + ratio * ratio)
+                },
             },
         )
     } else {
@@ -558,8 +647,7 @@ fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES]
         let roots = [0.5 * ((a + b) - gap), 0.5 * ((a + b) + gap)];
         // The root nearer the tine's own frequency is the one the tine leads.
         let led_by_tine = usize::from(
-            (roots[1] - tine_omega * tine_omega).abs()
-                < (roots[0] - tine_omega * tine_omega).abs(),
+            (roots[1] - tine_omega * tine_omega).abs() < (roots[0] - tine_omega * tine_omega).abs(),
         );
         let build = |root: f64, lead_is_tine: bool| {
             // Normalise on whichever prong leads, so neither ratio blows up
@@ -617,6 +705,26 @@ fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES]
     [first, bending[0], bending[1], tonebar]
 }
 
+/// Two-pole coefficients for every frame resonance at this sample rate.
+///
+/// A resonance at `f` with a T60 of `FRAME_DECAY_SECONDS` has pole radius
+/// `r = 1000^(-1 / (T60 * rate))`, and the recursion is
+/// `y = 2 r cos(w) y[-1] - r^2 y[-2] + x`.
+fn frame_coefficients(rate: f64) -> [(f64, f64); FRAME_MODES] {
+    let mut out = [(0.0, 0.0); FRAME_MODES];
+    let radius = (-1000.0_f64.ln() / (FRAME_DECAY_SECONDS * rate)).exp();
+    for (i, slot) in out.iter_mut().enumerate() {
+        // Above Nyquist a resonance is not a resonance; leave it silent.
+        if FRAME_HZ[i] * 2.0 >= rate {
+            *slot = (0.0, 0.0);
+            continue;
+        }
+        let omega = TAU * FRAME_HZ[i] / rate;
+        *slot = (2.0 * radius * omega.cos(), radius * radius);
+    }
+    out
+}
+
 /// How much faster the second principal axis runs than the first.
 ///
 /// The tine is a circular wire, so its bending rigidity is the same in both
@@ -652,6 +760,9 @@ fn resolve_axes(
     // Shape of each mode at the strike point along the tine. The tonebar's
     // entry matches the tine's first mode for the same reason its pickup
     // weight does: it arrives through the root, in that shape.
+    // Fitting these three to a clamped-free beam lands at x/L = 0.870 with a
+    // residual of 0.038, so unlike the pickup weights beside them they are
+    // the shape of a beam.
     let strike = [1.0, profile.bar_partial_strike_weight, 0.12, 1.0];
     let mut hammer = [0.0; COORDINATES];
     let mut pickup = [[0.0; COORDINATES]; 2];

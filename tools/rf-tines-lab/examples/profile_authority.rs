@@ -108,38 +108,80 @@ fn main() -> Result<(), Box<dyn Error>> {
     let cases: Vec<(&str, Profile, Profile)> = vec![
         (
             "razon del parcial de barra",
-            Profile { bar_partial_ratio: 5.6, ..base },
-            Profile { bar_partial_ratio: 7.0, ..base },
+            Profile {
+                bar_partial_ratio: 5.6,
+                ..base
+            },
+            Profile {
+                bar_partial_ratio: 7.0,
+                ..base
+            },
         ),
         (
             "masa del martillo",
-            Profile { hammer_mass_kg: 0.003, ..base },
-            Profile { hammer_mass_kg: 0.006, ..base },
+            Profile {
+                hammer_mass_kg: 0.003,
+                ..base
+            },
+            Profile {
+                hammer_mass_kg: 0.006,
+                ..base
+            },
         ),
         (
             "masa modal de la pua",
-            Profile { modal_mass_kg: 0.001, ..base },
-            Profile { modal_mass_kg: 0.002, ..base },
+            Profile {
+                modal_mass_kg: 0.001,
+                ..base
+            },
+            Profile {
+                modal_mass_kg: 0.002,
+                ..base
+            },
         ),
         (
             "cola del fundamental",
-            Profile { decay_seconds: 12.0, ..base },
-            Profile { decay_seconds: 28.0, ..base },
+            Profile {
+                decay_seconds: 12.0,
+                ..base
+            },
+            Profile {
+                decay_seconds: 28.0,
+                ..base
+            },
         ),
         (
             "cola del parcial de barra",
-            Profile { bar_partial_decay_seconds: 1.2, ..base },
-            Profile { bar_partial_decay_seconds: 3.5, ..base },
+            Profile {
+                bar_partial_decay_seconds: 1.2,
+                ..base
+            },
+            Profile {
+                bar_partial_decay_seconds: 3.5,
+                ..base
+            },
         ),
         (
             "cola del tercer parcial",
-            Profile { third_partial_decay_seconds: 0.03, ..base },
-            Profile { third_partial_decay_seconds: 0.09, ..base },
+            Profile {
+                third_partial_decay_seconds: 0.03,
+                ..base
+            },
+            Profile {
+                third_partial_decay_seconds: 0.09,
+                ..base
+            },
         ),
         (
             "radio del polo",
-            Profile { pickup_pole_radius_m: 0.001, ..base },
-            Profile { pickup_pole_radius_m: 0.003, ..base },
+            Profile {
+                pickup_pole_radius_m: 0.001,
+                ..base
+            },
+            Profile {
+                pickup_pole_radius_m: 0.003,
+                ..base
+            },
         ),
         (
             "ejes de la pua (dos planos)",
@@ -154,18 +196,36 @@ fn main() -> Result<(), Box<dyn Error>> {
         // eight of them actually cover.
         (
             "[ya expuesto] hueco del pickup",
-            Profile { pickup_gap_m: 0.0006, ..base },
-            Profile { pickup_gap_m: 0.00088, ..base },
+            Profile {
+                pickup_gap_m: 0.0006,
+                ..base
+            },
+            Profile {
+                pickup_gap_m: 0.00088,
+                ..base
+            },
         ),
         (
             "[ya expuesto] peso de golpe de barra",
-            Profile { bar_partial_strike_weight: -0.3 * 0.15 * 0.15, ..base },
-            Profile { bar_partial_strike_weight: -0.3 * 0.52 * 0.52, ..base },
+            Profile {
+                bar_partial_strike_weight: -0.3 * 0.15 * 0.15,
+                ..base
+            },
+            Profile {
+                bar_partial_strike_weight: -0.3 * 0.52 * 0.52,
+                ..base
+            },
         ),
         (
             "[ya expuesto] rigidez de contacto",
-            Profile { contact_stiffness: 4.0e10 * 25.0_f64.powf(2.0 * 0.22 - 1.0), ..base },
-            Profile { contact_stiffness: 4.0e10 * 25.0_f64.powf(2.0 * 0.66 - 1.0), ..base },
+            Profile {
+                contact_stiffness: 4.0e10 * 25.0_f64.powf(2.0 * 0.22 - 1.0),
+                ..base
+            },
+            Profile {
+                contact_stiffness: 4.0e10 * 25.0_f64.powf(2.0 * 0.66 - 1.0),
+                ..base
+            },
         ),
     ];
 

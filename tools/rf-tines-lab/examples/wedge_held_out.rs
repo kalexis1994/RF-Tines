@@ -24,8 +24,7 @@ const HELD_OUT: [u8; 6] = [36, 43, 64, 72, 84, 96];
 const TRAINING: [u8; 9] = [30, 38, 50, 55, 59, 67, 76, 88, 98];
 /// Exactly what the search left, unrounded and unretouched.
 const WINNER: [f64; 12] = [
-    1.5880, 0.9213, 0.6359, -0.4375, 0.3250, 1.0434, 1.3250, 1.1656, 0.5625, 1.4016, 1.0000,
-    1.0625,
+    1.5880, 0.9213, 0.6359, -0.4375, 0.3250, 1.0434, 1.3250, 1.1656, 0.5625, 1.4016, 1.0000, 1.0625,
 ];
 
 fn register_gap_m(note: u8, bass_mm: f64, treble_mm: f64) -> f64 {
@@ -65,7 +64,10 @@ fn main() -> Result<()> {
         .ok_or("usage: wedge_held_out SOURCE_SAMPLES")?;
     let source = Path::new(&source);
 
-    println!("{:<12}{:>12}{:>12}{:>12}", "notas", "release", "cuna", "cambio");
+    println!(
+        "{:<12}{:>12}{:>12}{:>12}",
+        "notas", "release", "cuna", "cambio"
+    );
     let mut verdicts = Vec::new();
     for (label, notes) in [("entrenam.", &TRAINING[..]), ("reservadas", &HELD_OUT[..])] {
         let cases = load(source, notes)?;
@@ -87,7 +89,10 @@ fn main() -> Result<()> {
     }
 
     println!("\npor nota reservada:");
-    println!("{:>6}{:>12}{:>12}{:>12}", "nota", "release", "cuna", "cambio");
+    println!(
+        "{:>6}{:>12}{:>12}{:>12}",
+        "nota", "release", "cuna", "cambio"
+    );
     let mut regressed = Vec::new();
     for note in HELD_OUT {
         let cases = load(source, &[note])?;

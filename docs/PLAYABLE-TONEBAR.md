@@ -197,3 +197,102 @@ What the number does establish is that the content the model is missing is
 reachable through the transduction and is not reachable through the
 resonator. The sources said so; it took two builds and this probe to believe
 them.
+
+## Addendum: the coupling was doing two jobs, and one of them is not optional
+
+A listener, given a render with `tonebar_coupling` at 1.6, said it sounded
+"como una cuerda" -- a strong vibrato. That is what two close modes trading
+energy sounds like, and it is why the coupling that made the bar audible was
+never usable.
+
+The cause is a conflation in the model. `tonebar_coupling` was controlling two
+physically separate things at once:
+
+- **The clamp.** A Rhodes tine is screwed to its tonebar. The bar carrying the
+  tine's root is why the bar is heard at the tip at all, and the hammer's blow
+  reacts against the bar through the same screw, which is why it is struck.
+  This does not depend on anything being tuned. It is always there.
+- **The elastic mixing.** How far the two resonances pull each other's
+  frequencies and trade energy. This is what beats.
+
+The shipped code tied them: at zero coupling the bar had `tine: 0.0` and was,
+in its own comment, "neither struck nor heard"; at the coupling that made it
+audible, the modes mixed and beat. The pickup weight's comment already stated
+the clamp correctly -- the bar "moves the root the tine is clamped to" -- and
+was then multiplied by a participation of zero.
+
+`tonebar_clamp` separates them. It defaults to 0.0, which reproduces the
+previous behaviour exactly.
+
+### What it bought, and what it did not
+
+At MIDI 52 forte, attack in dB under the body. The reference is p 165 Hz
+−12.0, 250 Hz −12.8, 330 Hz −4.5, with an envelope ripple of 0.1 dB.
+
+| | 165 | 250 | 330 | ripple |
+|---|---|---|---|---|
+| reference | −12.0 | −12.8 | −4.5 | 0.1 |
+| clamp 0 (ships) | −13.7 | −34.7 | −15.9 | 0.4 |
+| clamp 0.8 | −12.1 | −29.6 | −16.0 | 0.6 |
+| coupling 1.6, no clamp | — | −13.4 | −21.4 | **0.8** |
+
+The clamp does what it was predicted to: it raises the bar's partial with far
+less ripple than the coupling did. But it raises it only 5 dB where 22 are
+needed, because the bar carries eight times the tine's mass.
+
+Two further sweeps, both of parameters that had never been fitted against
+anything:
+
+- **Mass ratio.** Lightening the bar does reach the level — at 1.0x the tine's
+  mass, 250 Hz gets to −9.6 — but the ripple climbs to 1.7 dB, seventeen times
+  the reference's. Level and ripple are tied here too.
+- **Frequency ratio.** Tuning the bar anywhere from 1.19x to 2.4x leaves
+  330 Hz between −15.8 and −18.4. Even placing the bar exactly on 330 Hz does
+  not raise 330 Hz, because at a realistic mass its contribution is small next
+  to the tine's own second harmonic.
+
+So the conflation was real and worth fixing on its own terms, and the tonebar
+is still not the source of the reference's attack. What remains unexplained is
+above 5.7 kHz, where the model is 53 to 69 dB short; see
+docs/POLE-THRESHOLD.md and docs/STRUCK-FRAME.md.
+
+## The clamp is inertially limited, and its corner was measured
+
+Shipping the clamp at a flat 0.6 cost the treble its level: at note 93 forte
+the body fell 14.7 dB against no bar, and at note 84 it fell 8.8. A listener
+heard it as the top of the keyboard dying — "se escucha el tine inicial y
+luego cae" — and the first two measurements aimed at it missed, because they
+scored how long the note lasted rather than how loud it was. The sustain is
+untouched; the level is not.
+
+The cause is physical. The clamp is rigid, but the bar behind it is heavy, and
+a heavy bar cannot follow a fast root motion. Passing the full clamp at every
+note let the bar take the hammer's energy in the treble and dissipate it in
+its own 0.3 s.
+
+So the clamp is scaled by `1 / (1 + (f / f_ref)^2)`. With that in place the
+treble returns exactly to its no-bar level — at note 93 the drop is 6.1 dB
+against 6.6 with no bar at all, even at a clamp of 2.0.
+
+`f_ref` was first set to 220 Hz because the rest of the voice scales there,
+which was an assumption. Fitted against the reference on training notes:
+
+| f_ref | A balance | B colour | C transient |
+|---|---|---|---|
+| 170 Hz | −9.2% | −0.0% | −0.6% |
+| 195 Hz | −9.3% | −0.0% | −1.4% |
+| **210 Hz** | **−9.4%** | −0.1% | −2.7% |
+| 235 Hz | −8.8% | −0.1% | −5.4% |
+| 300 Hz | +4.2% | −0.0% | −13.1% |
+| 600 Hz | +18.5% | +0.1% | −42.5% |
+
+The optimum is broad and flat from about 195 to 235 Hz, with its minimum at
+210. The assumed 220 was inside that, so the assumption held — but it was luck
+that it did, and the value now has a measurement behind it.
+
+Two things this also says. The parameter is weakly determined: moving it from
+170 to 260 Hz moves the objective by under four points, so the remaining error
+does not live in this knob. And Term B barely responds to it at all, which
+means the inertial limit takes back almost all of the attack colour the flat
+clamp bought — the thing a listener liked at MIDI 52 and the thing that killed
+the treble were the same thing.

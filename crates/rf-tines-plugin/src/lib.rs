@@ -212,10 +212,7 @@ impl Processor for RfTinesProcessor {
         {
             bytes[68 + 8 * i..76 + 8 * i].copy_from_slice(&value.to_le_bytes());
         }
-        for (i, value) in [s.hammer, s.tine, s.pole, s.twist]
-            .into_iter()
-            .enumerate()
-        {
+        for (i, value) in [s.hammer, s.tine, s.pole, s.twist].into_iter().enumerate() {
             bytes[124 + 8 * i..132 + 8 * i].copy_from_slice(&value.to_le_bytes());
         }
         Some(STATE_BYTES)
@@ -272,15 +269,15 @@ impl Processor for RfTinesProcessor {
                 if state[65..68] == [0, 0, 0] =>
             {
                 Settings {
-                gain,
-                law: state[64],
-                distance_mm: field(1),
-                alignment_mm: field(2),
-                hardness: field(3),
-                sustain: field(4),
-                bell: field(5),
-                dynamics: field(6),
-                ..Settings::default()
+                    gain,
+                    law: state[64],
+                    distance_mm: field(1),
+                    alignment_mm: field(2),
+                    hardness: field(3),
+                    sustain: field(4),
+                    bell: field(5),
+                    dynamics: field(6),
+                    ..Settings::default()
                 }
             }
             _ => return false,

@@ -86,8 +86,7 @@ fn mechanics(note: u8, velocity: f64) -> Result<Motion> {
 
 /// Where a displacement falls among the knots.
 fn place_of(x: f64) -> (usize, f64) {
-    let place =
-        ((x + SPAN_M) / (2.0 * SPAN_M) * (KNOTS - 1) as f64).clamp(0.0, (KNOTS - 1) as f64);
+    let place = ((x + SPAN_M) / (2.0 * SPAN_M) * (KNOTS - 1) as f64).clamp(0.0, (KNOTS - 1) as f64);
     let low = (place.floor() as usize).min(KNOTS - 2);
     (low, place - low as f64)
 }
@@ -97,12 +96,7 @@ fn place_of(x: f64) -> (usize, f64) {
 fn through(motion: &Motion, knots: &[f64; KNOTS]) -> Result<AudioClip> {
     let mut decimator = ProductionDecimator::new();
     let mut out = Vec::with_capacity(motion.displacement.len() / OVERSAMPLE);
-    for (index, (x, v)) in motion
-        .displacement
-        .iter()
-        .zip(&motion.velocity)
-        .enumerate()
-    {
+    for (index, (x, v)) in motion.displacement.iter().zip(&motion.velocity).enumerate() {
         let (low, fraction) = place_of(*x);
         let slope = knots[low] + fraction * (knots[low + 1] - knots[low]);
         decimator.push(-slope * v);
@@ -135,7 +129,10 @@ fn main() -> Result<()> {
         .nth(1)
         .ok_or("usage: transducer_ceiling SOURCE_SAMPLES")?;
     let cases = load(Path::new(&source), &TRAINING_NOTES)?;
-    println!("{} casos. Mecanica renderizada una vez; solo cambia el transductor.", cases.len());
+    println!(
+        "{} casos. Mecanica renderizada una vez; solo cambia el transductor.",
+        cases.len()
+    );
     let motions: Vec<Motion> = cases
         .iter()
         .map(|c| mechanics(c.note, c.velocity))
