@@ -1,6 +1,8 @@
 use serde_json::{Value, json};
 
 pub const PROTOCOL: &str = "rackforge.plugin.web@1";
+/// The status once a parameter exchange has succeeded.
+const CONNECTED: &str = "Connected to RackForge";
 /// Gain, pickup law, distance, alignment, hardness, sustain, bell, dynamics,
 /// the seven panel electronics, then hammer mass, tine mass, pole radius and
 /// axis twist.
@@ -17,21 +19,19 @@ pub const DEFAULTS: [f64; PARAMETERS] = [
 pub enum Operation {
     Fetch,
     Set(usize, f64),
-    Select(String),
 }
 
+/// A program as the panel shows it. RackForge's program selector names and
+/// chooses programs; the panel follows the host's `selected_sound_id`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Sound {
     pub id: String,
-    pub name: String,
     pub detail: String,
 }
 
 pub struct Client {
     pub sounds: Vec<Sound>,
     pub selected: String,
-    pub selection_error: Option<String>,
-    selection: Option<String>,
     refresh: bool,
     revision: u64,
     pending_revision: u64,
@@ -48,8 +48,6 @@ impl Default for Client {
         Self {
             sounds: Vec::new(),
             selected: String::new(),
-            selection_error: None,
-            selection: None,
             refresh: false,
             revision: 0,
             pending_revision: 0,
@@ -90,7 +88,6 @@ impl Client {
             .filter_map(|sound| {
                 Some(Sound {
                     id: sound["id"].as_str()?.to_owned(),
-                    name: sound["name"].as_str()?.to_owned(),
                     detail: sound["detail"].as_str().unwrap_or("").to_owned(),
                 })
             })
@@ -105,23 +102,8 @@ impl Client {
         }
     }
 
-    pub fn selecting(&self) -> bool {
-        self.selection.is_some() || matches!(self.pending, Some((_, Operation::Select(_), _)))
-    }
-
-    pub fn select(&mut self, id: &str) {
-        if !self.loaded || self.selecting() || !self.sounds.iter().any(|sound| sound.id == id) {
-            return;
-        }
-        self.queued.fill(None);
-        self.selection = Some(id.to_owned());
-        self.selection_error = None;
-        self.loaded = false;
-        self.status = "Loading program...".into();
-    }
-
     pub fn queue(&mut self, index: usize, value: f64) {
-        if self.loaded && !self.selecting() && valid(index, value) {
+        if self.loaded && valid(index, value) {
             self.queued[index] = Some(value);
         }
     }
@@ -132,13 +114,7 @@ impl Client {
             .as_ref()
             .is_some_and(|(_, _, sent)| now - sent > 5000.0)
         {
-            if self.selecting() {
-                self.selection_error = Some(
-                    "Program selection timed out. Check the active program before retrying.".into(),
-                );
-            }
             self.pending = None;
-            self.selection = None;
             self.refresh = true;
             self.queued.fill(None);
             self.loaded = false;
@@ -147,10 +123,7 @@ impl Client {
         if self.pending.is_some() {
             return None;
         }
-        let operation = if let Some(id) = self.selection.take() {
-            self.loaded = false;
-            Operation::Select(id)
-        } else if self.refresh {
+        let operation = if self.refresh {
             self.refresh = false;
             Operation::Fetch
         } else if let Some(index) = self.queued.iter().position(Option::is_some) {
@@ -166,7 +139,6 @@ impl Client {
         self.pending = Some((id.clone(), operation.clone(), now));
         let (method, params) = match operation {
             Operation::Fetch => ("plugin.parameters", json!({})),
-            Operation::Select(sound) => ("plugin.select_sound", json!({"sound_id": sound})),
             Operation::Set(index, value) => (
                 "plugin.set_parameter",
                 json!({"parameter_index": index, "value": value}),
@@ -186,14 +158,6 @@ impl Client {
         }
         let operation = operation.clone();
         self.pending = None;
-        if let Operation::Select(_) = operation {
-            if message["ok"].as_bool() != Some(true) {
-                self.selection_error = Some("Could not load the program. Please try again.".into());
-            }
-            self.loaded = false;
-            self.refresh = true;
-            return;
-        }
         // A host-side program change invalidates any earlier parameter reply.
         if self.pending_revision != self.revision {
             self.refresh = true;
@@ -215,17 +179,23 @@ impl Client {
                     values
                 }),
             Operation::Fetch => snapshot(&message["result"]),
-            Operation::Select(_) => unreachable!("selection handled above"),
         };
         if let Some(values) = updated {
             self.values = values;
             self.loaded = true;
-            self.status = "Connected to RackForge".into();
+            self.status = CONNECTED.into();
         } else {
             self.loaded = false;
             self.queued.fill(None);
             self.status = "Invalid host parameter response. Reconnecting...".into();
         }
+    }
+
+    /// The link to the host is sound: the last exchange succeeded. A program
+    /// change reloads the controls without breaking it, so the panel has
+    /// nothing to say about the connection meanwhile.
+    pub fn linked(&self) -> bool {
+        self.status == CONNECTED
     }
 
     pub fn display(&self, index: usize) -> f64 {
@@ -314,11 +284,7 @@ mod tests {
     fn packaged_html_contains_the_required_program_and_parameter_controls() {
         let html = include_str!("../../../package/web/play.html");
         for id in [
-            "program-list",
-            "program-select",
-            "program-prev",
-            "program-next",
-            "program-name",
+            "program-selector",
             "program-detail",
             "program-error",
             "save-program-open",
@@ -361,6 +327,19 @@ mod tests {
             }
         }
         assert!(html.contains("src=\"play-programs.mjs\""));
+        // RackForge's selector chooses programs; the panel keeps no list of its own.
+        assert!(html.contains("<rf-program-select"));
+        for retired in [
+            "program-list",
+            "program-select",
+            "program-prev",
+            "program-next",
+        ] {
+            assert!(
+                !html.contains(&format!("id=\"{retired}\"")),
+                "{retired} is back"
+            );
+        }
     }
     #[test]
     fn packaged_config_surface_contains_the_portable_program_workflow() {
@@ -393,31 +372,39 @@ mod tests {
             {"id":"a", "name":"First"}, {"id":"b", "name":"Second", "detail":"Bright"}
         ]}));
     }
+    /// A program change reloads the controls, but the link stays sound, so the
+    /// panel has no connection message to show for it.
     #[test]
-    fn program_selection_serializes_after_inflight_write_and_discards_old_queued_edits() {
+    fn a_program_change_keeps_the_link_sound_while_the_controls_reload() {
+        let mut client = Client::default();
+        assert!(!client.linked(), "not linked before the first exchange");
+        catalog(&mut client, "a");
+        connect(&mut client);
+        assert!(client.linked());
+        catalog(&mut client, "b");
+        assert!(!client.loaded);
+        assert!(client.linked());
+        client.next(1.0, false).unwrap();
+        client.next(6_001.0, false);
+        assert!(!client.linked(), "a timeout breaks the link");
+    }
+
+    #[test]
+    fn a_program_chosen_elsewhere_drops_queued_edits_and_reads_the_new_controls() {
         let mut client = Client::default();
         catalog(&mut client, "a");
         connect(&mut client);
         client.queue(0, 0.2);
         let write = client.next(1.0, false).unwrap();
         client.queue(5, 0.9);
-        client.select("b");
-        client.queue(4, 0.8);
-        assert!(client.next(2.0, true).is_none());
-        client.response(&reply(&write, json!({"value":0.2})));
-        let select = client.next(3.0, false).unwrap();
-        assert_eq!(select["method"], "plugin.select_sound");
-        assert_eq!(select["params"]["sound_id"], "b");
+        catalog(&mut client, "b");
         assert!(!client.loaded);
-        client.response(&reply(&select, json!({})));
-        assert_eq!(
-            client.next(4.0, false).unwrap()["method"],
-            "plugin.parameters"
-        );
-        assert_eq!(
-            client.selected, "a",
-            "host context owns the selected identity"
-        );
+        client.queue(4, 0.8);
+        client.response(&reply(&write, json!({"value":0.2})));
+        let fetch = client.next(2.0, false).unwrap();
+        assert_eq!(fetch["method"], "plugin.parameters");
+        assert_eq!(client.selected, "b");
+        assert_eq!(client.sounds[1].detail, "Bright");
     }
     #[test]
     fn external_program_change_invalidates_an_inflight_parameter_snapshot() {
@@ -437,37 +424,6 @@ mod tests {
             client.next(2.0, false).unwrap()["method"],
             "plugin.parameters"
         );
-    }
-    #[test]
-    fn selection_failure_recovers_without_automatic_retry_and_remains_visible() {
-        let mut client = Client::default();
-        catalog(&mut client, "a");
-        connect(&mut client);
-        client.select("missing");
-        assert!(client.next(1.0, false).is_none());
-        client.select("b");
-        let request = client.next(2.0, false).unwrap();
-        client.response(&json!({"request_id":request["request_id"],"ok":false}));
-        assert!(client.selection_error.is_some());
-        connect(&mut client);
-        assert!(client.loaded);
-        assert_eq!(client.selected, "a");
-        assert!(client.selection_error.is_some());
-        assert!(client.next(3.0, false).is_none());
-    }
-    #[test]
-    fn ambiguous_selection_timeout_reads_state_instead_of_replaying_selection() {
-        let mut client = Client::default();
-        catalog(&mut client, "a");
-        connect(&mut client);
-        client.select("b");
-        let old = client.next(1.0, false).unwrap();
-        let fresh = client.next(6000.0, false).unwrap();
-        assert_eq!(fresh["method"], "plugin.parameters");
-        assert!(client.selection_error.is_some());
-        client.response(&reply(&old, json!({})));
-        assert!(!client.loaded);
-        assert!(client.next(6001.0, false).is_none());
     }
     #[test]
     fn snapshots_require_all_parameters_with_valid_domains_and_no_duplicates() {

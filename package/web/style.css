@@ -127,30 +127,17 @@ h1 span {
   letter-spacing: 3.4px;
   margin-top: 3px;
 }
-.signature {
+/* The program lives on the plate beside the name: RackForge's selector as a
+   dark display window set into the metal, SAVE AS stamped beside it. */
+.nameplate-program {
   justify-self: end;
-  max-width: 320px;
-  width: 100%;
-  opacity: 0.8;
+  width: min(100%, 540px);
+  min-width: 0;
 }
-.signature svg {
-  width: 100%;
-  height: 78px;
-  stroke: currentColor;
-  stroke-width: 1.7;
-}
-.signature svg .tine {
-  stroke: #865121;
-  stroke-width: 2;
-}
-.signature span {
-  display: block;
-  text-align: right;
-  font:
-    9px ui-monospace,
-    Consolas,
-    monospace;
+.nameplate-program .eyebrow {
+  margin-bottom: 5px;
   letter-spacing: 1.5px;
+  opacity: 0.75;
 }
 .connection {
   grid-column: 1/-1;
@@ -176,7 +163,8 @@ h1 span {
 .connection[data-ready="true"]:before {
   background: #386c38;
 }
-.connection[data-ready="true"] {
+.connection[data-ready="true"],
+.connection[data-linked="true"] {
   display: none;
 }
 .instrument-body {
@@ -450,9 +438,6 @@ footer p {
     padding: 24px;
     gap: 15px;
   }
-  .signature {
-    max-width: 240px;
-  }
   .section-nav {
     padding: 0 8px;
     gap: 0;
@@ -504,12 +489,37 @@ footer p {
   main {
     padding: 10px;
   }
-  .signature {
-    display: none;
-  }
   .nameplate {
     grid-template-columns: 1fr;
     padding: 20px 24px 16px;
+  }
+  /* On a phone the program has the plate's whole width, and SAVE AS moves
+     up beside its caption. */
+  .nameplate-program {
+    justify-self: stretch;
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "caption save"
+      "selector selector";
+    align-items: end;
+    gap: 6px 10px;
+  }
+  .nameplate-program .eyebrow {
+    grid-area: caption;
+    margin-bottom: 0;
+  }
+  .nameplate-program .program-actions {
+    display: contents;
+  }
+  .nameplate-program #program-selector {
+    grid-area: selector;
+  }
+  .nameplate-program #save-program-open {
+    grid-area: save;
+    min-height: 30px;
+    padding: 3px 9px;
   }
   .section-nav {
     grid-template-columns: 1fr 1fr;
@@ -552,121 +562,105 @@ footer p {
   }
 }
 
-/* Program navigation uses the host catalog in both layouts. */
-.workspace {
-  display: grid;
-  grid-template-columns: 205px minmax(0, 1fr);
-}
-.programs {
-  padding: 26px 16px;
-  background: var(--inset);
-  border: 1px solid var(--line);
-  border-top: 4px solid #131313;
-  border-radius: 0 0 0 8px;
-  min-width: 0;
-}
-.programs h2 {
-  font-size: 22px;
-  margin: 5px 0;
-}
-.programs .eyebrow {
-  color: var(--accent);
-}
-.program-hint,
-.library-note {
-  color: var(--muted);
-  font-size: 12px;
-}
-.library-note {
-  margin-top: 26px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
-}
-.program-list {
-  display: grid;
-  gap: 7px;
-  margin-top: 24px;
-}
-.program-list button {
-  min-height: 48px;
-  padding: 12px;
-  background: transparent;
-  color: var(--muted);
-  border: 1px solid transparent;
-  border-left: 3px solid transparent;
-  border-radius: 3px;
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.program-list button:hover {
-  background: var(--panel);
-  color: var(--ink);
-}
-.program-list button[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--panel);
-  border-color: var(--line);
-  border-left-color: var(--accent);
-}
+/* Under the plate, what the catalog says about the program, and what came of
+   the last choice or save. */
 .instrument-body {
   min-width: 0;
 }
 .program-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 24px;
+  gap: 4px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--line);
 }
-.current-program {
+/* The program selector is RackForge's <rf-program-select>. On the plate its
+   bar is a dark window whatever the lighting, with the name in the stage
+   accent; its list opens on the panel's own colours. */
+#program-selector {
+  display: flex;
+  flex: 1 1 auto;
   min-width: 0;
+  --rf-ps-font:
+    14px/1.4 "Segoe UI",
+    system-ui,
+    sans-serif;
+  --rf-ps-color: #eee9de;
+  --rf-ps-muted: var(--muted);
+  --rf-ps-accent: var(--accent);
+  --rf-ps-background: #1b1c1b;
+  --rf-ps-border: var(--line);
+  --rf-ps-surface: var(--panel);
+  --rf-ps-surface-color: var(--ink);
+  --rf-ps-radius: 4px;
+  --rf-ps-height: 44px;
+  --rf-ps-backdrop: #050807c7;
 }
-.current-program .eyebrow {
-  color: var(--muted);
+#program-selector::part(name),
+#program-selector::part(step) {
+  border-color: #0e0f0e;
+  box-shadow:
+    inset 0 2px 5px #000a,
+    0 1px 0 #fff8;
+}
+#program-selector::part(name-text) {
+  color: #efb66d;
+  font-size: 20px;
+  font-weight: 550;
+}
+#program-selector::part(number),
+#program-selector::part(bank) {
+  color: #aaa59c;
+  font:
+    10px ui-monospace,
+    Consolas,
+    monospace;
   letter-spacing: 1.5px;
 }
-#program-name {
-  color: var(--accent);
-  font-size: 22px;
-  font-weight: 550;
-  overflow-wrap: anywhere;
+#program-selector::part(step) {
+  width: 44px;
+  color: #eee9de;
+  font-size: 26px;
 }
-.program-step {
-  display: flex;
-  gap: 6px;
+#program-selector::part(dialog) {
+  border-top: 4px solid var(--accent);
+  box-shadow: 0 24px 80px #000a;
+}
+#program-selector::part(dialog)::backdrop {
+  backdrop-filter: blur(3px);
+}
+#program-selector::part(bank-chip) {
+  font:
+    700 10px ui-monospace,
+    Consolas,
+    monospace;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+}
+#program-selector::part(bank-chip-selected) {
+  color: var(--on-accent);
 }
 .program-actions {
   display: flex;
   align-items: stretch;
   gap: 8px;
 }
-.program-step button {
-  width: 44px;
-  min-height: 44px;
-  border: 1px solid var(--line);
-  background: var(--inset);
-  color: var(--ink);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 26px;
-}
+/* Stamped into the metal like the lettering around it. */
 #save-program-open {
+  flex: none;
   min-height: 44px;
   padding: 8px 13px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--metal-ink);
   border-radius: 4px;
   background: transparent;
-  color: var(--accent);
+  color: var(--metal-ink);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 1px;
   cursor: pointer;
 }
 #save-program-open:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--metal-ink);
+  color: var(--metal);
 }
 #save-program-open:disabled {
   cursor: not-allowed;
@@ -773,9 +767,6 @@ footer p {
   color: #e6a58f;
   font-size: 12px;
 }
-.compact-programs {
-  display: none;
-}
 .section-nav {
   padding: 0 6px;
   gap: 0;
@@ -805,35 +796,12 @@ footer p {
 .instrument-section {
   min-height: 440px;
 }
-@media (max-width: 959px) {
-  .workspace {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .programs {
-    display: none;
-  }
-  .compact-programs {
-    display: block;
-    grid-column: 1/-1;
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .compact-programs select {
-    display: block;
-    margin-top: 5px;
-    height: 44px;
-  }
-}
 @media (max-width: 480px) {
   .program-bar {
-    padding: 16px 12px;
-    gap: 10px;
+    padding: 10px 12px;
   }
-  #program-name {
-    font-size: 19px;
-  }
-  .program-step {
-    gap: 4px;
+  #program-selector::part(name-text) {
+    font-size: 18px;
   }
   .program-actions {
     gap: 5px;
@@ -1049,39 +1017,17 @@ footer p {
   h1 {
     font-size: clamp(36px, 5vw, 54px);
   }
-  .signature svg {
-    height: 52px;
-  }
-  .workspace {
-    grid-template-columns: 185px minmax(0, 1fr);
-  }
-  .programs {
-    padding: 18px 12px;
-  }
-  .programs h2 {
-    font-size: 19px;
-  }
-  .program-list {
-    gap: 4px;
-    margin-top: 14px;
-  }
-  .program-list button {
-    min-height: 40px;
-    padding: 8px 10px;
-  }
-  .library-note {
-    margin-top: 16px;
-    padding-top: 12px;
-  }
   .program-bar {
-    padding: 12px 18px;
+    padding: 10px 18px;
   }
-  #program-name {
+  #program-selector {
+    --rf-ps-height: 38px;
+  }
+  #program-selector::part(name-text) {
     font-size: 19px;
   }
-  .program-step button {
+  #program-selector::part(step) {
     width: 38px;
-    min-height: 38px;
     font-size: 22px;
   }
   #save-program-open {

@@ -16,10 +16,9 @@ const PAGE: &str = include_str!("../../../package/web/play.html");
 const PANEL: &str = include_str!("../src/browser.rs");
 
 /// Ids the panel resolves directly, outside the control table.
-const FIXED: [&str; 8] = [
+const FIXED: [&str; 7] = [
     "status",
-    "program-list",
-    "program-select",
+    "program-detail",
     "gain",
     "gain-number",
     "stage-controls",

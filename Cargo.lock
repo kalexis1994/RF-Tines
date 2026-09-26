@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "rf-tines-analysis"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "hound",
  "serde",
@@ -121,11 +121,11 @@ dependencies = [
 
 [[package]]
 name = "rf-tines-dsp"
-version = "0.2.7"
+version = "0.2.8"
 
 [[package]]
 name = "rf-tines-lab"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "rf-tines-analysis",
  "rf-tines-dsp",
@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "rf-tines-plugin"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "rackforge-plugin-sdk",
  "rackforge-program-api",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "rf-tines-ui"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
  "js-sys",
  "serde_json",

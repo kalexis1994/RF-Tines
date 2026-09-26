@@ -104,8 +104,8 @@ impl App {
         self.element(id).set_text_content(Some(text));
     }
     fn render(&self) {
-        let ready = self.connected && self.client.loaded && !self.client.selecting();
-        self.render_programs(ready);
+        let ready = self.connected && self.client.loaded;
+        self.render_program();
         let stage = self.client.display(13) == 0.0;
         for (id, hidden) in [
             ("stage-controls", !stage),
@@ -191,9 +191,18 @@ impl App {
             },
         );
         self.text("status", &self.client.status);
-        let _ = self
-            .element("status")
-            .set_attribute("data-ready", if ready { "true" } else { "false" });
+        let status = self.element("status");
+        let _ = status.set_attribute("data-ready", if ready { "true" } else { "false" });
+        // The line speaks only when the link is not sound: reloading the
+        // controls for a new program is not news.
+        let _ = status.set_attribute(
+            "data-linked",
+            if self.connected && self.client.linked() {
+                "true"
+            } else {
+                "false"
+            },
+        );
     }
 
     fn render_knob(&self, id: &str, value: f64) {
@@ -206,82 +215,20 @@ impl App {
             .set_attribute("style", &format!("--angle: {angle}deg"));
     }
 
-    fn render_programs(&self, ready: bool) {
-        let list = self.element("program-list");
-        let select = self.element("program-select");
-        let signature = format!("{:?}", self.client.sounds);
-        if list.get_attribute("data-catalog").as_deref() != Some(&signature) {
-            list.set_text_content(None);
-            select.set_text_content(None);
-            let placeholder = self.document.create_element("option").expect("option");
-            let _ = placeholder.set_attribute("value", "");
-            let _ = placeholder.set_attribute("disabled", "");
-            placeholder.set_text_content(Some("Select a program"));
-            let _ = select.append_child(&placeholder);
-            for sound in &self.client.sounds {
-                let button = self
-                    .document
-                    .create_element("button")
-                    .expect("program button");
-                let _ = button.set_attribute("type", "button");
-                let _ = button.set_attribute("data-sound-id", &sound.id);
-                let _ = button.set_attribute("title", &sound.detail);
-                button.set_text_content(Some(&sound.name));
-                let _ = list.append_child(&button);
-                let option = self
-                    .document
-                    .create_element("option")
-                    .expect("program option");
-                let _ = option.set_attribute("value", &sound.id);
-                option.set_text_content(Some(&sound.name));
-                let _ = select.append_child(&option);
-            }
-            let _ = list.set_attribute("data-catalog", &signature);
-        }
-        let children = list.children();
-        for index in 0..children.length() {
-            if let Some(button) = children.item(index) {
-                let selected =
-                    button.get_attribute("data-sound-id").as_deref() == Some(&self.client.selected);
-                let _ =
-                    button.set_attribute("aria-pressed", if selected { "true" } else { "false" });
-                if ready {
-                    let _ = button.remove_attribute("disabled");
-                } else {
-                    let _ = button.set_attribute("disabled", "");
-                }
-            }
-        }
-        select
-            .unchecked_ref::<HtmlSelectElement>()
-            .set_value(&self.client.selected);
+    /// RackForge's program selector names and chooses the program; the panel
+    /// adds what the catalog says about it.
+    fn render_program(&self) {
         let current = self
             .client
             .sounds
             .iter()
             .find(|s| s.id == self.client.selected);
         self.text(
-            "program-name",
-            current.map_or("Choose your voice", |s| s.name.as_str()),
-        );
-        self.text(
             "program-detail",
             current.map_or("Select a starting point, then shape its character.", |s| {
                 s.detail.as_str()
             }),
         );
-        self.text(
-            "program-error",
-            self.client.selection_error.as_deref().unwrap_or(""),
-        );
-        for id in ["program-select", "program-prev", "program-next"] {
-            let element = self.element(id);
-            if ready && !self.client.sounds.is_empty() {
-                let _ = element.remove_attribute("disabled");
-            } else {
-                let _ = element.set_attribute("disabled", "");
-            }
-        }
     }
 
     fn send(&self, message: &Value) -> Result<(), JsValue> {
@@ -409,64 +356,6 @@ fn knob_events(app: &Shared, id: &str, index: usize) -> Result<(), JsValue> {
     Ok(())
 }
 
-fn program_events(app: &Shared) -> Result<(), JsValue> {
-    for id in [
-        "program-list",
-        "program-select",
-        "program-prev",
-        "program-next",
-    ] {
-        let element = app.borrow().element(id);
-        let shared = app.clone();
-        let callback = Closure::<dyn FnMut(Event)>::new(move |event: Event| {
-            let mut app = shared.borrow_mut();
-            let sound = match id {
-                "program-select" => {
-                    Some(app.element(id).unchecked_ref::<HtmlSelectElement>().value())
-                }
-                "program-list" => event
-                    .target()
-                    .and_then(|target| target.dyn_into::<Element>().ok())
-                    .and_then(|target| target.closest("button[data-sound-id]").ok().flatten())
-                    .and_then(|button| button.get_attribute("data-sound-id")),
-                _ => {
-                    let count = app.client.sounds.len();
-                    if count == 0 {
-                        return;
-                    }
-                    let current = app
-                        .client
-                        .sounds
-                        .iter()
-                        .position(|s| s.id == app.client.selected);
-                    let next = current.map_or(0, |index| {
-                        if id == "program-next" {
-                            (index + 1) % count
-                        } else {
-                            (index + count - 1) % count
-                        }
-                    });
-                    Some(app.client.sounds[next].id.clone())
-                }
-            };
-            if let Some(sound) = sound {
-                app.client.select(&sound);
-                app.pump(false);
-            }
-        });
-        element.add_event_listener_with_callback(
-            if id == "program-select" {
-                "change"
-            } else {
-                "click"
-            },
-            callback.as_ref().unchecked_ref(),
-        )?;
-        callback.forget();
-    }
-    Ok(())
-}
-
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("missing window"))?;
@@ -506,7 +395,6 @@ pub fn start() -> Result<(), JsValue> {
         }
     }
     knob_events(&app, "gain", 0)?;
-    program_events(&app)?;
     let messages = app.clone();
     let callback = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
         let mut app = messages.borrow_mut();
