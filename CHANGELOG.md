@@ -4,6 +4,27 @@ All notable RF-Tines changes are recorded here. Versions follow semantic
 versioning while the public plugin contract is still below 1.0. Entries for
 releases published before the rename keep the names that were current then.
 
+## 0.2.8 - 2026-09-26
+
+- Programs are chosen with RackForge's program selector, which the host
+  injects into every plugin frame: the name in the panel's accent with arrows
+  either side, and a tap for the whole library with a search that forgives
+  typos, filtered by bank. It replaces the sidebar list, the compact dropdown
+  and the separate arrows, so the panel no longer gives a column to programs
+  and a phone sees the same control a desktop does. It needs a RackForge that
+  injects the selector; an older host shows the panel without one.
+- The selector and SAVE AS sit on the nameplate, beside the RF-Tines logotype
+  and RACKFORGE INSTRUMENTS, as a dark display window set into the metal; the
+  decorative signature gives them its place. On a phone SAVE AS moves up
+  beside its caption so the program name has the plate's whole width.
+- The selector holds still while a program is being saved, and a program the
+  host refuses puts the previous name back with the same message as before.
+- The panel's Rust client no longer sends selections; it follows the host's
+  `selected_sound_id` and reads the new program's controls, as it already did
+  for a change made elsewhere.
+- A program change no longer flashes "Connected to RackForge": the connection
+  line speaks only when the link to the host is not sound.
+
 ## 0.2.7 - 2026-09-22
 
 - Gave the tonebar a path to the tine that does not depend on elastic mixing.

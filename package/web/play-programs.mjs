@@ -14,6 +14,10 @@ const closeButton = document.querySelector("#save-program-close");
 const dialogStatus = document.querySelector("#save-program-status");
 const feedback = document.querySelector("#save-program-feedback");
 const hostStatus = document.querySelector("#status");
+// RackForge's <rf-program-select>: it chooses programs on its own; this page
+// only holds it still while a program is being saved, and reports refusals.
+const programSelector = document.querySelector("#program-selector");
+const programError = document.querySelector("#program-error");
 
 let context = null;
 let requestSerial = 0;
@@ -32,6 +36,7 @@ function controlsReady() {
 function render() {
   const available = connected() && controlsReady() && !busy && !context?.program_draft;
   openButton.disabled = !available;
+  programSelector.toggleAttribute("disabled", busy || Boolean(context?.program_draft));
   nameInput.disabled = busy;
   cancelButton.disabled = busy;
   closeButton.disabled = busy;
@@ -202,6 +207,13 @@ dialog.addEventListener("cancel", (event) => {
 });
 dialog.addEventListener("click", (event) => {
   if (!busy && event.target === dialog) dialog.close();
+});
+
+programSelector.addEventListener("rf-program-select", () => {
+  programError.textContent = "";
+});
+programSelector.addEventListener("rf-program-error", () => {
+  programError.textContent = "Could not load the program. Please try again.";
 });
 
 new MutationObserver(render).observe(hostStatus, { attributes: true, attributeFilter: ["data-ready"] });

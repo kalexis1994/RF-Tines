@@ -14,68 +14,27 @@
           <h1>RF<span>–</span>Tines</h1>
           <p class="model">TINE ELECTRIC PIANO</p>
         </div>
-        <div class="signature" aria-hidden="true">
-          <svg viewBox="0 0 320 90" fill="none">
-            <path d="M20 60H272M20 30H235Q270 30 270 60" />
-            <path class="tine" d="M35 61Q85 35 140 61T245 61" />
-            <path
-              d="M282 37V83M292 37V83M302 37V83M278 41H307M278 49H307M278 57H307M278 65H307M278 73H307"
-            />
-            <circle cx="25" cy="60" r="7" /></svg
-          ><span>THE STRIKE. THE RING. THE CHARACTER.</span>
+        <div class="nameplate-program">
+          <p class="eyebrow">SELECTED PROGRAM</p>
+          <div class="program-actions">
+            <!-- RackForge supplies this element and its programs. -->
+            <rf-program-select
+              id="program-selector"
+              placeholder="Search RF-Tines programs"
+              empty-label="Choose your voice"
+            ></rf-program-select>
+            <button id="save-program-open" type="button" disabled>
+              SAVE AS
+            </button>
+          </div>
         </div>
         <p class="connection" id="status" role="status">
           Connecting to RackForge…
         </p>
       </header>
       <div class="workspace">
-        <aside class="programs" aria-label="Programs">
-          <p class="eyebrow">YOUR SOUND</p>
-          <h2>Programs</h2>
-          <p class="program-hint">Choose a voice.<br />Make it your own.</p>
-          <div
-            id="program-list"
-            class="program-list"
-            aria-label="Available programs"
-          ></div>
-          <p class="library-note">
-            Shape a voice, then save it to your RF-Tines library.
-          </p>
-        </aside>
         <div class="instrument-body">
           <div class="program-bar">
-            <div class="current-program">
-              <p class="eyebrow">SELECTED PROGRAM</p>
-              <h2 id="program-name">Choose your voice</h2>
-            </div>
-            <div class="program-actions">
-              <div class="program-step">
-                <button
-                  id="program-prev"
-                  type="button"
-                  aria-label="Previous program"
-                  disabled
-                >
-                  &#8249;
-                </button>
-                <button
-                  id="program-next"
-                  type="button"
-                  aria-label="Next program"
-                  disabled
-                >
-                  &#8250;
-                </button>
-              </div>
-              <button id="save-program-open" type="button" disabled>
-                SAVE AS
-              </button>
-            </div>
-            <label class="compact-programs" for="program-select"
-              >Programs<select id="program-select" disabled>
-                <option value="">Connecting...</option>
-              </select></label
-            >
             <p id="program-detail">
               Select a starting point, then shape its character.
             </p>
