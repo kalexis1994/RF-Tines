@@ -2,6 +2,7 @@ use crate::laboratory::{
     AxialAperture, PlanarAperture, ReluctancePickup, aperture_voltage, planar_voltage,
     reluctance_voltage,
 };
+use crate::planar_table::PlanarTable;
 use crate::{FIRST_NOTE, LAST_NOTE, MagneticPickup, ModelError, OVERSAMPLE, Profile};
 use core::f64::consts::TAU;
 
@@ -114,10 +115,6 @@ impl Mode {
         self.contact_free = transitions(contact_dt);
     }
 
-    fn advance_free(&mut self, damped: bool) {
-        self.advance(self.free[usize::from(damped)]);
-    }
-
     fn advance_contact_remainder(&mut self, damped: bool) {
         self.advance(self.contact_free[usize::from(damped)]);
     }
@@ -130,6 +127,47 @@ impl Mode {
 
     fn energy(&self) -> f64 {
         0.5 * self.mass * (self.v * self.v + self.omega * self.omega * self.q * self.q)
+    }
+}
+
+struct ContactMode {
+    velocity_scale: f64,
+    position_scale: f64,
+    denominator: f64,
+    response_velocity: f64,
+    response_position: f64,
+}
+
+struct ContactStep {
+    modes: [ContactMode; COORDINATES],
+    compliance: f64,
+}
+
+impl ContactStep {
+    fn prepare(
+        modes: &[Mode; COORDINATES],
+        weights: &[f64; COORDINATES],
+        hammer_mass: f64,
+        h: f64,
+        damped: bool,
+    ) -> Self {
+        let mut compliance = h * h / (2.0 * hammer_mass);
+        let modes = core::array::from_fn(|i| {
+            let mode = &modes[i];
+            let gamma = mode.gamma + if damped { 55.0 } else { 0.0 };
+            let stiffness = 0.25 * h * h * mode.omega * mode.omega;
+            let denominator = 1.0 + h * gamma + stiffness;
+            let response_velocity = h * weights[i] / (mode.mass * denominator);
+            compliance += 0.5 * h * weights[i] * response_velocity;
+            ContactMode {
+                velocity_scale: 1.0 - h * gamma - stiffness,
+                position_scale: h * mode.omega * mode.omega,
+                denominator,
+                response_velocity,
+                response_position: 0.5 * h * response_velocity,
+            }
+        });
+        Self { modes, compliance }
     }
 }
 
@@ -151,10 +189,13 @@ pub struct Voice {
     pickup: MagneticPickup,
     aperture: Option<AxialAperture>,
     planar: Option<PlanarAperture>,
+    planar_table: Option<PlanarTable>,
     circuit: Option<ReluctancePickup>,
     pitch_ratio: f64,
     dt: f64,
+    contact_dt: f64,
     contact_steps: usize,
+    contact_coefficients: [ContactStep; 2],
     hammer_mass: f64,
     hammer_x: f64,
     hammer_v: f64,
@@ -167,6 +208,7 @@ pub struct Voice {
     /// depend on the sample rate, so they are prepared once per voice.
     frame_state: [[f64; 2]; FRAME_MODES],
     frame_coefficients: [(f64, f64); FRAME_MODES],
+    frame_ringing: bool,
     pub(crate) last_channel: u8,
 }
 
@@ -203,7 +245,9 @@ impl Voice {
     }
 
     pub(crate) fn new_validated(sample_rate: f64, note: u8, profile: Profile) -> Self {
-        Self::prepare(sample_rate, note, profile, OVERSAMPLE, true)
+        let mut voice = Self::prepare(sample_rate, note, profile, OVERSAMPLE, true);
+        voice.planar_table = Some(PlanarTable::new(note, voice.profile.spatial_pickup()));
+        voice
     }
 
     fn prepare(
@@ -229,6 +273,7 @@ impl Voice {
         } else {
             1
         };
+        let contact_dt = dt / contact_steps as f64;
         let table = fork_modes(profile, frequency, scale);
         let modes = core::array::from_fn(|c| {
             let (axis, i) = (c / MODES, c % MODES);
@@ -239,10 +284,14 @@ impl Voice {
                 spec.mass,
                 underdamped(spec.gamma, spec.frequency * spin),
                 dt,
-                dt / contact_steps as f64,
+                contact_dt,
             )
         });
         let (hammer_weights, pickup_weights) = resolve_axes(profile, &table);
+        let hammer_mass = profile.hammer_mass_kg * scale.sqrt();
+        let contact_coefficients = [false, true].map(|damped| {
+            ContactStep::prepare(&modes, &hammer_weights, hammer_mass, contact_dt, damped)
+        });
         Self {
             modes,
             hammer_weights,
@@ -252,11 +301,14 @@ impl Voice {
             pickup: MagneticPickup::from_validated_profile(profile),
             aperture: profile.aperture(),
             planar: profile.planar_aperture(),
+            planar_table: None,
             circuit: profile.reluctance(),
             pitch_ratio: 1.0,
             dt,
+            contact_dt,
             contact_steps,
-            hammer_mass: profile.hammer_mass_kg * scale.sqrt(),
+            contact_coefficients,
+            hammer_mass,
             hammer_x: 0.0,
             hammer_v: 0.0,
             contact: false,
@@ -266,6 +318,7 @@ impl Voice {
             signal: 0.0,
             frame_state: [[0.0; 2]; FRAME_MODES],
             frame_coefficients: frame_coefficients(sample_rate),
+            frame_ringing: false,
             last_channel: 0,
         }
     }
@@ -288,14 +341,21 @@ impl Voice {
                 spec.mass,
                 underdamped(spec.gamma, spec.frequency * spin),
                 self.dt,
-                self.dt / self.contact_steps as f64,
+                self.contact_dt,
             );
         }
         (self.hammer_weights, self.pickup_weights) = resolve_axes(profile, &table);
         self.hammer_mass = profile.hammer_mass_kg * scale.sqrt();
+        self.prepare_contact();
         self.pickup = MagneticPickup::from_validated_profile(profile);
         self.aperture = profile.aperture();
-        self.planar = profile.planar_aperture();
+        let planar = profile.planar_aperture();
+        if self.planar != planar
+            && let Some(table) = &mut self.planar_table
+        {
+            table.configure(self.note, profile.spatial_pickup());
+        }
+        self.planar = planar;
         self.circuit = profile.reluctance();
         self.profile = profile;
     }
@@ -307,6 +367,9 @@ impl Voice {
     pub fn set_pitch_ratio(&mut self, ratio: f64) -> bool {
         if !ratio.is_finite() || !(0.5..=2.0).contains(&ratio) {
             return false;
+        }
+        if ratio == self.pitch_ratio {
+            return true;
         }
         self.pitch_ratio = ratio;
         let frequency = 440.0 * 2.0_f64.powf((self.note as f64 - 69.0) / 12.0) * ratio;
@@ -323,10 +386,23 @@ impl Voice {
                 mode.mass,
                 mode.gamma,
                 self.dt,
-                self.dt / self.contact_steps as f64,
+                self.contact_dt,
             );
         }
+        self.prepare_contact();
         true
+    }
+
+    fn prepare_contact(&mut self) {
+        self.contact_coefficients = [false, true].map(|damped| {
+            ContactStep::prepare(
+                &self.modes,
+                &self.hammer_weights,
+                self.hammer_mass,
+                self.contact_dt,
+                damped,
+            )
+        });
     }
 
     /// Retriggering retains every resonator coordinate and its velocity.
@@ -339,6 +415,7 @@ impl Voice {
             self.profile.maximum_hammer_speed_m_s * velocity.powf(self.profile.velocity_exponent);
         self.contact = true;
         self.frame_state = [[0.0; 2]; FRAME_MODES];
+        self.frame_ringing = false;
         self.damped = false;
         self.active = true;
         true
@@ -363,11 +440,12 @@ impl Voice {
             return 0.0;
         }
         self.force = 0.0;
-        if self.contact {
+        let (position, mut velocity) = if self.contact {
             let mut force_sum = 0.0;
+            let mut contact_position = self.contact_position();
             for _ in 0..self.contact_steps {
                 if self.contact {
-                    self.advance_contact(self.dt / self.contact_steps as f64);
+                    contact_position = self.advance_contact(contact_position);
                     force_sum += self.force;
                 } else {
                     // Complete the same physical interval after a separation
@@ -378,12 +456,10 @@ impl Voice {
                 }
             }
             self.force = force_sum / self.contact_steps as f64;
+            self.tip()
         } else {
-            for mode in &mut self.modes {
-                mode.advance_free(self.damped);
-            }
-        }
-        let (position, mut velocity) = self.tip();
+            self.advance_free_and_tip()
+        };
         let drive = if self.contact { self.force } else { 0.0 };
         velocity[0] += self.frame(drive);
         // Smooth, bounded flux linkage surrogate. Gap never reaches zero.
@@ -397,10 +473,19 @@ impl Voice {
             // transverse coordinate is not part of that path yet.
             (Some(circuit), _, _) => reluctance_voltage(circuit, position[0], velocity[0]),
             (None, Some(aperture), _) => aperture_voltage(aperture, position[0], velocity[0]),
-            (None, None, Some(planar)) => planar_voltage(planar, position, velocity),
+            (None, None, Some(planar)) => match &mut self.planar_table {
+                // Contact can read a prepared cell, but never builds one.
+                Some(table) => table.voltage(planar, position, velocity, !self.contact),
+                _ => planar_voltage(planar, position, velocity),
+            },
             (None, None, None) => self.pickup.voltage(position[0], velocity[0]),
         };
-        if !self.contact && self.modes.iter().map(Mode::energy).sum::<f64>() < 1e-18 {
+        // Every modal energy is nonnegative. A ringing fundamental alone
+        // can rule out retirement without summing the remaining modes.
+        if !self.contact
+            && self.modes[0].energy() < 1e-18
+            && self.modes.iter().map(Mode::energy).sum::<f64>() < 1e-18
+        {
             self.reset();
         }
         self.signal
@@ -423,9 +508,10 @@ impl Voice {
     /// not; docs/CONTACT-NOISE.md is why that was tried first.
     fn frame(&mut self, drive: f64) -> f64 {
         let gain = self.profile.frame_gain;
-        if gain <= 0.0 {
+        if gain <= 0.0 || (!self.frame_ringing && drive == 0.0) {
             return 0.0;
         }
+        self.frame_ringing = true;
         let coefficients = self.frame_coefficients;
         let mut sum = 0.0;
         let mut alive = false;
@@ -438,64 +524,66 @@ impl Voice {
             alive |= y.abs() > 1e-20;
         }
         if !alive && drive == 0.0 {
+            // A small output may just be a zero crossing. Both samples of
+            // every resonator must settle well below the output gate before
+            // suspending the bank and avoiding a subnormal tail.
+            if self
+                .frame_state
+                .iter()
+                .flatten()
+                .all(|sample| sample.abs() < 1e-30)
+            {
+                self.frame_state = [[0.0; 2]; FRAME_MODES];
+                self.frame_ringing = false;
+            }
             return 0.0;
         }
         gain * sum
     }
 
-    fn advance_contact(&mut self, h: f64) {
-        let delta0 = self.hammer_x - self.contact_position();
+    fn advance_contact(&mut self, contact_position: f64) -> f64 {
+        let h = self.contact_dt;
+        let step = &self.contact_coefficients[usize::from(self.damped)];
+        let delta0 = self.hammer_x - contact_position;
         let mut free_q = [0.0; COORDINATES];
         let mut free_v = [0.0; COORDINATES];
-        let mut response_v = [0.0; COORDINATES];
         let mut delta_free = self.hammer_x + h * self.hammer_v;
-        let mut compliance = h * h / (2.0 * self.hammer_mass);
-        for (i, mode) in self.modes.iter().enumerate() {
-            let gamma = mode.gamma + if self.damped { 55.0 } else { 0.0 };
-            let denominator = 1.0 + h * gamma + 0.25 * h * h * mode.omega * mode.omega;
-            free_v[i] = ((1.0 - h * gamma - 0.25 * h * h * mode.omega * mode.omega) * mode.v
-                - h * mode.omega * mode.omega * mode.q)
-                / denominator;
+        for (i, (mode, coefficients)) in self.modes.iter().zip(&step.modes).enumerate() {
+            free_v[i] = (coefficients.velocity_scale * mode.v
+                - coefficients.position_scale * mode.q)
+                / coefficients.denominator;
             free_q[i] = mode.q + 0.5 * h * (mode.v + free_v[i]);
-            let weight = self.hammer_weights[i];
-            response_v[i] = h * weight / (mode.mass * denominator);
-            delta_free -= weight * free_q[i];
-            compliance += 0.5 * h * weight * response_v[i];
+            delta_free -= self.hammer_weights[i] * free_q[i];
         }
-        let stiffness = self.profile.contact_stiffness;
-        let maximum_delta = delta0.max(delta_free).max(0.0);
-        let mut low = 0.0;
-        let mut high = stiffness * maximum_delta * maximum_delta;
-        // Monotone scalar solve with a proven bracket, bounded work, no Newton
-        // divergence. The discrete gradient preserves the contact potential.
-        for _ in 0..40 {
-            let force = 0.5 * (low + high);
-            let delta1 = delta_free - compliance * force;
-            if force > contact_gradient(stiffness, delta0, delta1) {
-                high = force;
-            } else {
-                low = force;
-            }
-        }
-        self.force = 0.5 * (low + high);
-        for (i, mode) in self.modes.iter_mut().enumerate() {
-            mode.v = free_v[i] + response_v[i] * self.force;
-            mode.q = free_q[i] + 0.5 * h * response_v[i] * self.force;
+        self.force = solve_contact(
+            self.profile.contact_stiffness,
+            delta0,
+            delta_free,
+            step.compliance,
+        );
+        let mut contact_position = -0.0;
+        for (i, (mode, coefficients)) in self.modes.iter_mut().zip(&step.modes).enumerate() {
+            mode.v = free_v[i] + coefficients.response_velocity * self.force;
+            mode.q = free_q[i] + coefficients.response_position * self.force;
+            contact_position += mode.q * self.hammer_weights[i];
         }
         self.hammer_x += h * self.hammer_v - 0.5 * h * h * self.force / self.hammer_mass;
         self.hammer_v -= h * self.force / self.hammer_mass;
-        let delta1 = self.hammer_x - self.contact_position();
-        let contact_v: f64 = self
-            .modes
-            .iter()
-            .zip(self.hammer_weights)
-            .map(|(m, b)| m.v * b)
-            .sum();
-        if delta1 <= 0.0 && self.hammer_v <= contact_v {
-            self.contact = false;
-            self.hammer_x = 0.0;
-            self.hammer_v = 0.0;
+        let delta1 = self.hammer_x - contact_position;
+        if delta1 <= 0.0 {
+            let contact_velocity: f64 = self
+                .modes
+                .iter()
+                .zip(self.hammer_weights)
+                .map(|(mode, weight)| mode.v * weight)
+                .sum();
+            if self.hammer_v <= contact_velocity {
+                self.contact = false;
+                self.hammer_x = 0.0;
+                self.hammer_v = 0.0;
+            }
         }
+        contact_position
     }
 
     fn contact_position(&self) -> f64 {
@@ -520,6 +608,20 @@ impl Voice {
         (q, v)
     }
 
+    fn advance_free_and_tip(&mut self) -> ([f64; 2], [f64; 2]) {
+        let damped = usize::from(self.damped);
+        let mut position = [0.0; 2];
+        let mut velocity = [0.0; 2];
+        for (c, mode) in self.modes.iter_mut().enumerate() {
+            mode.advance(mode.free[damped]);
+            for direction in 0..2 {
+                position[direction] += mode.q * self.pickup_weights[direction][c];
+                velocity[direction] += mode.v * self.pickup_weights[direction][c];
+            }
+        }
+        (position, velocity)
+    }
+
     pub fn probe(&self) -> Probe {
         let (position, velocity) = self.tip();
         let (displacement_m, velocity_m_s) = (position[0], velocity[0]);
@@ -541,6 +643,19 @@ impl Voice {
         }
     }
 
+    pub(crate) fn prime_pickup_table(&mut self) -> bool {
+        match (&mut self.planar_table, &self.planar) {
+            (Some(table), Some(pickup)) => table.prime(pickup),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn reset_pickup_table(&mut self) {
+        if let Some(table) = &mut self.planar_table {
+            table.clear(self.note);
+        }
+    }
+
     pub fn reset(&mut self) {
         for mode in &mut self.modes {
             mode.q = 0.0;
@@ -550,6 +665,7 @@ impl Voice {
         self.hammer_v = 0.0;
         self.contact = false;
         self.active = false;
+        self.frame_ringing = false;
         self.force = 0.0;
         self.signal = 0.0;
     }
@@ -796,11 +912,97 @@ fn underdamped(gamma: f64, frequency: f64) -> f64 {
 /// Piecewise algebra avoids catastrophic cancellation at nearby compressions.
 pub(crate) fn contact_gradient(k: f64, a: f64, b: f64) -> f64 {
     if a >= 0.0 && b >= 0.0 {
-        k * (a * a + a * b + b * b) / 3.0
+        compressed_gradient(k, a, b)
     } else if a <= 0.0 && b <= 0.0 {
         0.0
     } else {
         let positive = a.max(b);
         k * positive * positive * positive / (3.0 * (b - a).abs())
+    }
+}
+
+fn compressed_gradient(stiffness: f64, initial: f64, endpoint: f64) -> f64 {
+    stiffness * (initial * initial + initial * endpoint + endpoint * endpoint) / 3.0
+}
+
+#[inline]
+fn solve_contact(stiffness: f64, delta0: f64, delta_free: f64, compliance: f64) -> f64 {
+    let maximum_delta = delta0.max(delta_free).max(0.0);
+    let bound = stiffness * maximum_delta * maximum_delta;
+    if bound == 0.0 {
+        return 0.0;
+    }
+
+    // Within contact, the discrete gradient gives a quadratic in the final
+    // penetration. Use its positive root without subtracting nearly equal terms.
+    let weight = stiffness * compliance / 3.0;
+    let remaining = delta_free - weight * delta0 * delta0;
+    if delta0 >= 0.0 && remaining > 0.0 {
+        let linear = 1.0 + weight * delta0;
+        let delta1 =
+            2.0 * remaining / (linear + (linear * linear + 4.0 * weight * remaining).sqrt());
+        let force = compressed_gradient(stiffness, delta0, delta1);
+        let endpoint = delta_free - compliance * force;
+        if endpoint >= 0.0
+            && (force - compressed_gradient(stiffness, delta0, endpoint)).abs() <= bound * 1e-13
+        {
+            return force;
+        }
+    }
+
+    // A step across the contact boundary still uses the monotone bracket.
+    bisect_contact(stiffness, delta0, delta_free, compliance, bound)
+}
+
+#[cold]
+fn bisect_contact(
+    stiffness: f64,
+    delta0: f64,
+    delta_free: f64,
+    compliance: f64,
+    bound: f64,
+) -> f64 {
+    let mut low = 0.0;
+    let mut high = bound;
+    for _ in 0..40 {
+        let force = 0.5 * (low + high);
+        let delta1 = delta_free - compliance * force;
+        if force > contact_gradient(stiffness, delta0, delta1) {
+            high = force;
+        } else {
+            low = force;
+        }
+    }
+    0.5 * (low + high)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contact_solver_agrees_with_the_bracket_across_contact_boundaries() {
+        for stiffness in [1e7, 4e8, 1e12] {
+            for compliance in [1e-12, 1e-9, 1e-7] {
+                for initial in [-2e-5_f64, 0.0, 1e-7, 1e-4] {
+                    for free in [-1e-4, -1e-7, 0.0, 1e-7, 1e-4] {
+                        let bound = stiffness * initial.max(free).max(0.0).powi(2);
+                        let (mut low, mut high) = (0.0, bound);
+                        for _ in 0..40 {
+                            let midpoint = 0.5 * (low + high);
+                            let endpoint = free - compliance * midpoint;
+                            if midpoint > contact_gradient(stiffness, initial, endpoint) {
+                                high = midpoint;
+                            } else {
+                                low = midpoint;
+                            }
+                        }
+                        let actual = solve_contact(stiffness, initial, free, compliance);
+                        let expected = 0.5 * (low + high);
+                        assert!((actual - expected).abs() <= bound * 1e-12);
+                    }
+                }
+            }
+        }
     }
 }

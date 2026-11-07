@@ -103,6 +103,7 @@ pub fn aperture_voltage(pickup: &AxialAperture, displacement_m: f64, velocity_m_
 /// The gradient here is the analytic derivative of the same node flux
 /// `SpatialPickup::flux_wb` sums, so on the axis it returns exactly what the
 /// reduction returns, with a transverse component of zero.
+#[derive(PartialEq)]
 pub struct PlanarAperture {
     nodes: [[f64; 2]; 16],
     offset: [f64; 2],

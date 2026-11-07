@@ -77,7 +77,7 @@ impl Electronics {
         // Passive-style bass restoration: full clockwise is flat, never boosted.
         let stage = x - (1.0 - boost) * self.stage_low;
         let tone = stage + preamp * (suitcase - stage);
-        let movement = self.phase.sin();
+        let movement = if depth == 0.0 { 0.0 } else { self.phase.sin() };
         self.phase = (self.phase + TAU * speed / self.rate) % TAU;
         // Complementary amplitude modulation: no channel is amplified by the LFO.
         // A mono host gets the left channel, retaining tremolo. Stereo downmix

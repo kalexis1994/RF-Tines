@@ -20,6 +20,7 @@ pub use modal_assembly::{
 pub use modal_assembly::{PolarizationProfile, PolarizedActionAssembly, PolarizedActionProbe};
 mod model;
 mod pickup;
+mod planar_table;
 mod tine;
 mod voice;
 
@@ -60,6 +61,9 @@ pub struct Engine {
     /// 2 MiB test thread. The allocation happens at construction, which this
     /// crate's contract allows -- it is rendering that uses fixed-size state.
     voices: Box<[Voice; KEY_COUNT]>,
+    // Includes released tines until their mechanical energy reaches silence.
+    active_keys: u128,
+    prime_key: usize,
     held: [u16; KEY_COUNT],
     sustained: [u16; KEY_COUNT],
     pedals: u16,
@@ -97,6 +101,8 @@ impl Engine {
             .map_err(|_| ModelError("the keyboard did not prepare"))?;
         Ok(Self {
             voices,
+            active_keys: 0,
+            prime_key: 0,
             held: [0; KEY_COUNT],
             sustained: [0; KEY_COUNT],
             pedals: 0,
@@ -159,6 +165,7 @@ impl Engine {
             voice.set_profile(profile);
         }
         self.profile = profile;
+        self.prime_key = 0;
         self.target_compensation = if self.compensating {
             profile.level_compensation()
         } else {
@@ -215,6 +222,7 @@ impl Engine {
         self.voices[i].last_channel = channel;
         self.voices[i].set_pitch_ratio(pitch_ratio(self.pitch_bends[channel as usize]));
         self.voices[i].strike(velocity);
+        self.active_keys |= 1 << i;
         true
     }
 
@@ -271,6 +279,7 @@ impl Engine {
                         && (self.held[i] | self.sustained[i]) == 0
                     {
                         self.voices[i].reset();
+                        self.active_keys &= !(1 << i);
                     }
                     self.update_damper(i);
                 }
@@ -311,14 +320,32 @@ impl Engine {
     /// A mono direct signal, after a 127-tap antialias filter. No limiter,
     /// normalization, reverb or amplifier coloration is hidden here.
     pub fn next_sample(&mut self) -> f32 {
-        for _ in 0..OVERSAMPLE {
-            let mut sum = 0.0;
-            let mut close = [0.0; 3];
-            for voice in self.voices.iter_mut() {
-                sum += voice.tick();
-                if let Some(lab) = &self.laboratory
-                    && voice.is_active()
-                {
+        if self.active_keys == 0 {
+            // Refill at most one cell per output sample, exclusively in
+            // silence. An incoming strike can use any completed cells.
+            while self.prime_key < KEY_COUNT {
+                if self.voices[self.prime_key].prime_pickup_table() {
+                    break;
+                }
+                self.prime_key += 1;
+            }
+        }
+        let mut sums = [0.0; OVERSAMPLE];
+        let mut close = [[0.0; 3]; OVERSAMPLE];
+        let mut keys = self.active_keys;
+        while keys != 0 {
+            let key = keys.trailing_zeros() as usize;
+            keys &= keys - 1;
+            let voice = &mut self.voices[key];
+            // Keep each voice's state and pickup table hot across substeps.
+            // Each substep still mixes the keys in ascending order.
+            for (sum, close) in sums.iter_mut().zip(&mut close) {
+                *sum += voice.tick();
+                if !voice.is_active() {
+                    self.active_keys &= !(1 << key);
+                    break;
+                }
+                if let Some(lab) = &self.laboratory {
                     // The laboratory's comparison paths are one-coordinate
                     // laws, so they see the motion along the strike direction.
                     let (q, v) = voice.tip();
@@ -327,6 +354,8 @@ impl Engine {
                     close[2] += laboratory::aperture_voltage(&lab.aperture, q[0], v[0]);
                 }
             }
+        }
+        for (sum, close) in sums.into_iter().zip(close) {
             if !sum.is_finite() || close.iter().any(|value| !value.is_finite()) {
                 self.reset();
                 self.faults = self.faults.saturating_add(1);
@@ -358,7 +387,10 @@ impl Engine {
     pub fn reset(&mut self) {
         for voice in self.voices.iter_mut() {
             voice.reset();
+            voice.reset_pickup_table();
         }
+        self.active_keys = 0;
+        self.prime_key = 0;
         self.held.fill(0);
         self.sustained.fill(0);
         self.pedals = 0;

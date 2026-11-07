@@ -46,10 +46,12 @@ impl Decimator {
     }
 
     pub fn output(&self) -> f64 {
+        let (recent, wrapped) = self.history.split_at(self.cursor);
+        // Read newest to oldest across the wrap, in the original sum order.
         self.taps
             .iter()
-            .enumerate()
-            .map(|(i, tap)| tap * self.history[(self.cursor + TAPS - 1 - i) % TAPS])
+            .zip(recent.iter().rev().chain(wrapped.iter().rev()))
+            .map(|(tap, sample)| tap * sample)
             .sum()
     }
 
