@@ -2,6 +2,7 @@ use crate::SpatialPickupProfile;
 use crate::laboratory::{APERTURE_PICKUP, PlanarAperture, planar_voltage};
 
 const CELL_COUNT: usize = 512;
+const GRID_COUNT: usize = 128;
 const LONGITUDINAL_STEPS: f64 = 48.0;
 const TRANSVERSE_STEPS: f64 = 1024.0;
 const REFILL_INTERVAL: u8 = 32;
@@ -12,13 +13,27 @@ const PRIME_COLUMNS: u32 = 224;
 #[derive(Clone, Copy)]
 struct Cell {
     tag: u64,
-    gradient: [[[f64; 2]; 4]; 2],
+    // [degree][base or row slope][longitudinal or transverse]
+    gradient: [[[f64; 2]; 2]; 4],
 }
 
 impl Cell {
     const EMPTY: Self = Self {
         tag: 0,
-        gradient: [[[0.0; 2]; 4]; 2],
+        gradient: [[[0.0; 2]; 2]; 4],
+    };
+}
+
+#[derive(Clone, Copy)]
+struct GridPoint {
+    tag: u64,
+    gradient: [f64; 2],
+}
+
+impl GridPoint {
+    const EMPTY: Self = Self {
+        tag: 0,
+        gradient: [0.0; 2],
     };
 }
 
@@ -26,6 +41,7 @@ impl Cell {
 /// reserved at prepare time, including for a later switch to planar Aperture.
 pub(crate) struct PlanarTable {
     cells: Box<[Cell; CELL_COUNT]>,
+    grid: Box<[GridPoint; GRID_COUNT]>,
     generation: u32,
     cooldown: u8,
     prime_column: u32,
@@ -37,6 +53,10 @@ impl PlanarTable {
     pub(crate) fn new(note: u8, geometry: SpatialPickupProfile) -> Self {
         Self {
             cells: vec![Cell::EMPTY; CELL_COUNT]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap_or_else(|_| unreachable!()),
+            grid: vec![GridPoint::EMPTY; GRID_COUNT]
                 .into_boxed_slice()
                 .try_into()
                 .unwrap_or_else(|_| unreachable!()),
@@ -58,6 +78,7 @@ impl PlanarTable {
         self.generation = self.generation.wrapping_add(1);
         if self.generation == 0 {
             self.cells.fill(Cell::EMPTY);
+            self.grid.fill(GridPoint::EMPTY);
             self.generation = 1;
         }
         self.cooldown = note % REFILL_INTERVAL;
@@ -71,9 +92,8 @@ impl PlanarTable {
         let column = self.prime_column;
         self.prime_column += 1;
         let (index, tag) = cell_address(self.generation, column, 0);
-        let cell = &mut self.cells[index];
-        if cell.tag != tag {
-            *cell = build_cell(pickup, self.geometry, tag, column, 0);
+        if self.cells[index].tag != tag {
+            self.cells[index] = self.build_cell(pickup, tag, column, 0);
         }
         true
     }
@@ -100,58 +120,71 @@ impl PlanarTable {
         let column = x as u32;
         let row = y as u32;
         let (index, tag) = cell_address(self.generation, column, row);
-        let cell = &mut self.cells[index];
-        if cell.tag != tag {
+        if self.cells[index].tag != tag {
             // Cold and colliding cells use the exact field until there is
             // refill capacity. Note-dependent offsets stagger the work.
             if !allow_refill || self.cooldown != 0 {
                 return planar_voltage(pickup, position, velocity);
             }
             self.cooldown = REFILL_INTERVAL;
-            *cell = build_cell(pickup, self.geometry, tag, column, row);
+            self.cells[index] = self.build_cell(pickup, tag, column, row);
         }
+        let cell = &self.cells[index];
         let x_fraction = x - f64::from(column);
         let y_fraction = y - f64::from(row);
-        let gx = evaluate(&cell.gradient[0], x_fraction, y_fraction);
+        let [gx, gy] = evaluate(&cell.gradient, x_fraction, y_fraction);
         let gx = if longitudinal < 0.0 { -gx } else { gx };
-        let gy = evaluate(&cell.gradient[1], x_fraction, y_fraction) * transverse;
+        let gy = gy * transverse;
         VOLTAGE_SCALE * (gx * velocity[0] + gy * velocity[1])
+    }
+
+    #[cold]
+    fn build_cell(&mut self, pickup: &PlanarAperture, tag: u64, column: u32, row: u32) -> Cell {
+        let samples: [[_; 4]; 2] = core::array::from_fn(|j| {
+            core::array::from_fn(|i| self.grid_gradient(pickup, column + i as u32, row + j as u32))
+        });
+        let [near, far] = samples
+            .map(|line| [0, 1].map(|axis| cubic_coefficients(line.map(|sample| sample[axis]))));
+        let gradient = core::array::from_fn(|i| {
+            let [nx, ny] = [near[0][i], near[1][i]];
+            [[nx, ny], [far[0][i] - nx, far[1][i] - ny]]
+        });
+        Cell { tag, gradient }
+    }
+
+    fn grid_gradient(&mut self, pickup: &PlanarAperture, column: u32, row: u32) -> [f64; 2] {
+        // Adjacent interpolation cells share grid points. Reuse the same
+        // analytic evaluations without changing the interpolation stencil.
+        let (hash, tag) = grid_address(self.generation, column, row);
+        let point = &mut self.grid[hash & (GRID_COUNT - 1)];
+        if point.tag != tag {
+            let [offset_x, offset_y] = self.geometry.offset_xy_m;
+            let x = (f64::from(column) - 1.0) * (self.geometry.gap_m / LONGITUDINAL_STEPS);
+            // The symmetric field makes Gx and Gy/y smooth in y squared.
+            // Sample just off-axis for the removable singularity of Gy/y at zero.
+            let y = (f64::from(row) / TRANSVERSE_STEPS).sqrt().max(1e-5);
+            let [gx, gy] =
+                pickup.gradient_wb_per_m([x - offset_x, y * self.geometry.gap_m - offset_y]);
+            *point = GridPoint {
+                tag,
+                gradient: [gx, gy / y],
+            };
+        }
+        point.gradient
     }
 }
 
 #[inline]
 fn cell_address(generation: u32, column: u32, row: u32) -> (usize, u64) {
-    let tag = (u64::from(generation) << 32) | (u64::from(column) << 16) | u64::from(row);
-    let hash = column.wrapping_mul(0x5e4f_3419) ^ row.wrapping_mul(0x31d7_6c4d);
-    (hash as usize & (CELL_COUNT - 1), tag)
+    let (hash, tag) = grid_address(generation, column, row);
+    (hash & (CELL_COUNT - 1), tag)
 }
 
-#[cold]
-fn build_cell(
-    pickup: &PlanarAperture,
-    geometry: SpatialPickupProfile,
-    tag: u64,
-    column: u32,
-    row: u32,
-) -> Cell {
-    let [offset_x, offset_y] = geometry.offset_xy_m;
-    let samples: [[_; 4]; 2] = core::array::from_fn(|j| {
-        // The symmetric field makes Gx and Gy/y smooth in y squared. Sample
-        // just off the axis for the removable singularity of Gy/y at zero.
-        let y = ((f64::from(row) + j as f64) / TRANSVERSE_STEPS)
-            .sqrt()
-            .max(1e-5);
-        core::array::from_fn(|i| {
-            let x = (f64::from(column) + i as f64 - 1.0) * (geometry.gap_m / LONGITUDINAL_STEPS);
-            let [gx, gy] = pickup.gradient_wb_per_m([x - offset_x, y * geometry.gap_m - offset_y]);
-            [gx, gy / y]
-        })
-    });
-    let gradient = core::array::from_fn(|axis| {
-        let [near, far] = samples.map(|line| cubic_coefficients(line.map(|sample| sample[axis])));
-        core::array::from_fn(|i| [near[i], far[i] - near[i]])
-    });
-    Cell { tag, gradient }
+#[inline]
+fn grid_address(generation: u32, column: u32, row: u32) -> (usize, u64) {
+    let tag = (u64::from(generation) << 32) | (u64::from(column) << 16) | u64::from(row);
+    let hash = column.wrapping_mul(0x5e4f_3419) ^ row.wrapping_mul(0x31d7_6c4d);
+    (hash as usize, tag)
 }
 
 fn cubic_coefficients([a, b, c, d]: [f64; 4]) -> [f64; 4] {
@@ -168,9 +201,13 @@ fn cubic_coefficients([a, b, c, d]: [f64; 4]) -> [f64; 4] {
 }
 
 #[inline]
-fn evaluate(coefficients: &[[f64; 2]; 4], x: f64, y: f64) -> f64 {
-    let [a, b, c, d] = coefficients.map(|[base, slope]| base + y * slope);
-    ((d * x + c) * x + b) * x + a
+fn evaluate(coefficients: &[[[f64; 2]; 2]; 4], x: f64, y: f64) -> [f64; 2] {
+    let [a, b, c, d] =
+        coefficients.map(|[base, slope]| [base[0] + y * slope[0], base[1] + y * slope[1]]);
+    [
+        ((d[0] * x + c[0]) * x + b[0]) * x + a[0],
+        ((d[1] * x + c[1]) * x + b[1]) * x + a[1],
+    ]
 }
 
 #[cfg(test)]

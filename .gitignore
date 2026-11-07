@@ -2,7 +2,6 @@
 /dist/
 /references/audio/
 /renders/
-/.cargo/config.toml
 /package/component.wasm
 /package/web/app.js
 /package/web/app_bg.wasm

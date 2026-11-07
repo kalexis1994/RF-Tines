@@ -400,7 +400,9 @@ impl Processor for RfTinesProcessor {
             return;
         }
         let (mut p, mut m, mut w) = (0, 0, 0);
-        for frame in 0..frames {
+        let mut frame = 0;
+        let mut mono = [0.0; 64];
+        while frame < frames {
             // Explicit stable tie order: parameters, MIDI 1.0, then MIDI 2.0.
             while p < parameters.len() && parameters[p].frame == frame {
                 self.set_parameter(parameters[p].index, parameters[p].value);
@@ -414,13 +416,34 @@ impl Processor for RfTinesProcessor {
                 self.midi2(&midi2[w]);
                 w += 1;
             }
-            let sample = self.engine.as_mut().expect("prepared engine").next_sample();
-            let offset = frame as usize * outputs as usize;
-            let [left, right] = self.electronics.process(sample);
-            output[offset] = left;
-            if outputs == 2 {
-                output[offset + 1] = right;
+            let end = [
+                parameters.get(p).map_or(frames, |e| e.frame),
+                midi.get(m).map_or(frames, |e| e.frame),
+                midi2.get(w).map_or(frames, |e| e.frame),
+            ]
+            .into_iter()
+            .min()
+            .expect("three event sources")
+            .min(frame + mono.len() as u32);
+            let count = (end - frame) as usize;
+            let samples = &mut mono[..count];
+            self.engine
+                .as_mut()
+                .expect("prepared engine")
+                .render_span(samples);
+            let start = frame as usize * outputs as usize;
+            let finish = end as usize * outputs as usize;
+            for (&sample, channels) in samples
+                .iter()
+                .zip(output[start..finish].chunks_exact_mut(outputs as usize))
+            {
+                let [left, right] = self.electronics.process(sample);
+                channels[0] = left;
+                if outputs == 2 {
+                    channels[1] = right;
+                }
             }
+            frame = end;
         }
     }
 }

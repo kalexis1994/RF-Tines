@@ -51,6 +51,7 @@ pub const FIRST_NOTE: u8 = 28;
 pub const LAST_NOTE: u8 = 100;
 pub const KEY_COUNT: usize = (LAST_NOTE - FIRST_NOTE + 1) as usize;
 pub const OVERSAMPLE: usize = 4;
+const SPAN_FRAMES: usize = 32;
 
 /// One shared mechanical key per pitch, with channel-aware key/pedal ownership.
 /// Multiple MIDI channels do not create extra copies of the same physical tine.
@@ -366,6 +367,66 @@ impl Engine {
                 lab.push(close);
             }
         }
+        self.finish_sample()
+    }
+
+    /// Render a run with no MIDI or parameter changes inside it.
+    pub fn render_span(&mut self, output: &mut [f32]) {
+        for chunk in output.chunks_mut(SPAN_FRAMES) {
+            self.render_chunk(chunk);
+        }
+    }
+
+    fn render_chunk(&mut self, output: &mut [f32]) {
+        if self.active_keys == 0 || self.laboratory.is_some() {
+            output.fill_with(|| self.next_sample());
+            return;
+        }
+
+        let mut sums = [[0.0; OVERSAMPLE]; SPAN_FRAMES];
+        let mut keys = self.active_keys;
+        let mut ringing_frames = 0;
+        while keys != 0 {
+            let key = keys.trailing_zeros() as usize;
+            keys &= keys - 1;
+            let voice = &mut self.voices[key];
+            // Keep the same per-substep summation order while using each
+            // voice's modal state and pickup cells across a short run.
+            for (index, steps) in sums[..output.len()].iter_mut().enumerate() {
+                ringing_frames = ringing_frames.max(index + 1);
+                for sum in steps {
+                    *sum += voice.tick();
+                    if !voice.is_active() {
+                        break;
+                    }
+                }
+                if !voice.is_active() {
+                    self.active_keys &= !(1 << key);
+                    break;
+                }
+            }
+        }
+
+        let mut ringing = true;
+        for (index, sample) in output.iter_mut().enumerate() {
+            if !ringing || index >= ringing_frames {
+                *sample = self.next_sample();
+                continue;
+            }
+            for sum in sums[index] {
+                if !sum.is_finite() {
+                    self.reset();
+                    self.faults = self.faults.saturating_add(1);
+                    ringing = false;
+                    break;
+                }
+                self.decimator.push(sum);
+            }
+            *sample = if ringing { self.finish_sample() } else { 0.0 };
+        }
+    }
+
+    fn finish_sample(&mut self) -> f32 {
         self.gain += self.gain_step * (self.target_gain - self.gain);
         self.compensation += self.gain_step * (self.target_compensation - self.compensation);
         let mut signal = self.decimator.output();

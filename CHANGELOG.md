@@ -4,6 +4,20 @@ All notable RF-Tines changes are recorded here. Versions follow semantic
 versioning while the public plugin contract is still below 1.0. Entries for
 releases published before the rename keep the names that were current then.
 
+## 0.2.9 - 2026-11-07
+
+- Reduced the cost of 32-note attacks and sustained polyphony. The two-axis
+  pickup reuses neighboring interpolation samples and prepares the attack
+  region during silence. The portable component uses fixed-width WebAssembly
+  SIMD for independent calculations.
+- Reused prepared hammer contact coefficients and rendered each voice in
+  short spans between events, keeping MIDI and automation sample-accurate.
+- In RackForge Desktop with ASIO4ALL at 96 kHz and 256 frames, three starts
+  with the KeyLab controller package disabled in the test library completed
+  6,912 measured blocks without a deadline miss. The peak was 2.422 ms.
+  With the controller package retrying startup, occasional sustain blocks
+  still exceeded the budget.
+
 ## 0.2.8 - 2026-09-26
 
 - Programs are chosen with RackForge's program selector, which the host

@@ -105,7 +105,7 @@ pub fn aperture_voltage(pickup: &AxialAperture, displacement_m: f64, velocity_m_
 /// reduction returns, with a transverse component of zero.
 #[derive(PartialEq)]
 pub struct PlanarAperture {
-    nodes: [[f64; 2]; 16],
+    nodes: [[[f64; 2]; 2]; 8],
     offset: [f64; 2],
     gap_squared: f64,
     scale: f64,
@@ -116,14 +116,18 @@ impl PlanarAperture {
         p.validate()?;
         // The same two-radius, eight-azimuth disk quadrature as `SpatialPickup`,
         // unmerged because the mirrored pairs no longer agree off the axis.
-        let nodes = core::array::from_fn(|i| {
+        let nodes: [[f64; 2]; 16] = core::array::from_fn(|i| {
             let sign = if i < 8 { -1.0 } else { 1.0 };
             let r = p.pole_radius_m * ((1.0 + sign / 3.0_f64.sqrt()) / 2.0).sqrt();
             let (sn, cs) = (TAU * (i % 8) as f64 / 8.0).sin_cos();
             [r * cs * (1.0 - p.pole_wedge), r * sn]
         });
         Ok(Self {
-            nodes,
+            nodes: core::array::from_fn(|i| {
+                let [x0, y0] = nodes[2 * i];
+                let [x1, y1] = nodes[2 * i + 1];
+                [[x0, x1], [y0, y1]]
+            }),
             offset: p.offset_xy_m,
             gap_squared: p.gap_m.powi(2),
             scale: -3.0 * p.flux_scale_wb * p.gap_m.powi(3) / 16.0,
@@ -139,18 +143,53 @@ impl PlanarAperture {
         {
             return [f64::NAN; 2];
         }
+        let x = position[0] + self.offset[0];
+        let y = position[1] + self.offset[1];
+        let [gx, gy] = self.gradient_at(x, y);
+        [self.scale * gx, self.scale * gy]
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+    fn gradient_at(&self, x: f64, y: f64) -> [f64; 2] {
         let mut sum = [0.0; 2];
-        for node in self.nodes {
-            let u = [
-                position[0] + self.offset[0] - node[0],
-                position[1] + self.offset[1] - node[1],
-            ];
-            let r2 = self.gap_squared + u[0] * u[0] + u[1] * u[1];
-            let weight = 1.0 / (r2 * r2 * r2.sqrt());
-            sum[0] += weight * u[0];
-            sum[1] += weight * u[1];
+        for [xs, ys] in &self.nodes {
+            for (&nx, &ny) in xs.iter().zip(ys) {
+                let ux = x - nx;
+                let uy = y - ny;
+                let r2 = self.gap_squared + ux * ux + uy * uy;
+                let weight = 1.0 / (r2 * r2 * r2.sqrt());
+                sum[0] += weight * ux;
+                sum[1] += weight * uy;
+            }
         }
-        [self.scale * sum[0], self.scale * sum[1]]
+        sum
+    }
+
+    #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+    fn gradient_at(&self, x: f64, y: f64) -> [f64; 2] {
+        use core::arch::wasm32::*;
+
+        let x = f64x2_splat(x);
+        let y = f64x2_splat(y);
+        let gap_squared = f64x2_splat(self.gap_squared);
+        let one = f64x2_splat(1.0);
+        let mut gx = f64x2_splat(0.0);
+        let mut gy = f64x2_splat(0.0);
+        for [xs, ys] in &self.nodes {
+            // Adjacent quadrature nodes are independent up to accumulation.
+            let ux = f64x2_sub(x, f64x2(xs[0], xs[1]));
+            let uy = f64x2_sub(y, f64x2(ys[0], ys[1]));
+            let r2 = f64x2_add(f64x2_add(gap_squared, f64x2_mul(ux, ux)), f64x2_mul(uy, uy));
+            let weight = f64x2_div(one, f64x2_mul(f64x2_mul(r2, r2), f64x2_sqrt(r2)));
+            let vx = f64x2_mul(weight, ux);
+            let vy = f64x2_mul(weight, uy);
+            gx = f64x2_add(gx, vx);
+            gy = f64x2_add(gy, vy);
+        }
+        [
+            f64x2_extract_lane::<0>(gx) + f64x2_extract_lane::<1>(gx),
+            f64x2_extract_lane::<0>(gy) + f64x2_extract_lane::<1>(gy),
+        ]
     }
 }
 

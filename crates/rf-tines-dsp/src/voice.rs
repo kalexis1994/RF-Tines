@@ -38,6 +38,7 @@ const COORDINATES: usize = MODES * AXES;
 /// because the attack already carries 15 dB more than the reference at 750 Hz
 /// and 8 dB more at 1500.
 const FRAME_MODES: usize = 12;
+const FRAME_PAIRS: usize = FRAME_MODES / 2;
 const FRAME_HZ: [f64; FRAME_MODES] = [
     2170.0, 2580.0, 3010.0, 3490.0, 4060.0, 4730.0, 5410.0, 6220.0, 7050.0, 7960.0, 8930.0, 9870.0,
 ];
@@ -133,7 +134,7 @@ impl Mode {
 struct ContactMode {
     velocity_scale: f64,
     position_scale: f64,
-    denominator: f64,
+    inverse_denominator: f64,
     response_velocity: f64,
     response_position: f64,
 }
@@ -162,7 +163,7 @@ impl ContactStep {
             ContactMode {
                 velocity_scale: 1.0 - h * gamma - stiffness,
                 position_scale: h * mode.omega * mode.omega,
-                denominator,
+                inverse_denominator: denominator.recip(),
                 response_velocity,
                 response_position: 0.5 * h * response_velocity,
             }
@@ -197,6 +198,7 @@ pub struct Voice {
     contact_steps: usize,
     contact_coefficients: [ContactStep; 2],
     hammer_mass: f64,
+    contact_position_m: f64,
     hammer_x: f64,
     hammer_v: f64,
     contact: bool,
@@ -206,8 +208,8 @@ pub struct Voice {
     signal: f64,
     /// Two-pole state and coefficients per frame resonance. The coefficients
     /// depend on the sample rate, so they are prepared once per voice.
-    frame_state: [[f64; 2]; FRAME_MODES],
-    frame_coefficients: [(f64, f64); FRAME_MODES],
+    frame_state: [[[f64; 2]; 2]; FRAME_PAIRS],
+    frame_coefficients: [[[f64; 2]; 2]; FRAME_PAIRS],
     frame_ringing: bool,
     pub(crate) last_channel: u8,
 }
@@ -309,6 +311,7 @@ impl Voice {
             contact_steps,
             contact_coefficients,
             hammer_mass,
+            contact_position_m: 0.0,
             hammer_x: 0.0,
             hammer_v: 0.0,
             contact: false,
@@ -316,7 +319,7 @@ impl Voice {
             active: false,
             force: 0.0,
             signal: 0.0,
-            frame_state: [[0.0; 2]; FRAME_MODES],
+            frame_state: [[[0.0; 2]; 2]; FRAME_PAIRS],
             frame_coefficients: frame_coefficients(sample_rate),
             frame_ringing: false,
             last_channel: 0,
@@ -347,6 +350,9 @@ impl Voice {
         (self.hammer_weights, self.pickup_weights) = resolve_axes(profile, &table);
         self.hammer_mass = profile.hammer_mass_kg * scale.sqrt();
         self.prepare_contact();
+        if self.contact {
+            self.contact_position_m = self.contact_position();
+        }
         self.pickup = MagneticPickup::from_validated_profile(profile);
         self.aperture = profile.aperture();
         let planar = profile.planar_aperture();
@@ -410,11 +416,12 @@ impl Voice {
         if !velocity.is_finite() || !(0.0..=1.0).contains(&velocity) || velocity == 0.0 {
             return false;
         }
-        self.hammer_x = self.contact_position();
+        self.contact_position_m = self.contact_position();
+        self.hammer_x = self.contact_position_m;
         self.hammer_v =
             self.profile.maximum_hammer_speed_m_s * velocity.powf(self.profile.velocity_exponent);
         self.contact = true;
-        self.frame_state = [[0.0; 2]; FRAME_MODES];
+        self.frame_state = [[[0.0; 2]; 2]; FRAME_PAIRS];
         self.frame_ringing = false;
         self.damped = false;
         self.active = true;
@@ -442,10 +449,9 @@ impl Voice {
         self.force = 0.0;
         let (position, mut velocity) = if self.contact {
             let mut force_sum = 0.0;
-            let mut contact_position = self.contact_position();
             for _ in 0..self.contact_steps {
                 if self.contact {
-                    contact_position = self.advance_contact(contact_position);
+                    self.advance_contact();
                     force_sum += self.force;
                 } else {
                     // Complete the same physical interval after a separation
@@ -512,16 +518,19 @@ impl Voice {
             return 0.0;
         }
         self.frame_ringing = true;
-        let coefficients = self.frame_coefficients;
         let mut sum = 0.0;
         let mut alive = false;
-        for (i, state) in self.frame_state.iter_mut().enumerate() {
-            let (a1, a2) = coefficients[i];
-            let y = a1 * state[0] - a2 * state[1] + drive * FRAME_LEVELS[i];
-            state[1] = state[0];
-            state[0] = y;
-            sum += y;
-            alive |= y.abs() > 1e-20;
+        for (i, (state, coefficients)) in self
+            .frame_state
+            .iter_mut()
+            .zip(&self.frame_coefficients)
+            .enumerate()
+        {
+            let levels = [FRAME_LEVELS[2 * i], FRAME_LEVELS[2 * i + 1]];
+            let next = advance_frame_pair(*state, *coefficients, levels, drive);
+            *state = [next, state[0]];
+            sum = (sum + next[0]) + next[1];
+            alive |= next[0].abs() > 1e-20 || next[1].abs() > 1e-20;
         }
         if !alive && drive == 0.0 {
             // A small output may just be a zero crossing. Both samples of
@@ -531,9 +540,10 @@ impl Voice {
                 .frame_state
                 .iter()
                 .flatten()
+                .flatten()
                 .all(|sample| sample.abs() < 1e-30)
             {
-                self.frame_state = [[0.0; 2]; FRAME_MODES];
+                self.frame_state = [[[0.0; 2]; 2]; FRAME_PAIRS];
                 self.frame_ringing = false;
             }
             return 0.0;
@@ -541,17 +551,17 @@ impl Voice {
         gain * sum
     }
 
-    fn advance_contact(&mut self, contact_position: f64) -> f64 {
+    fn advance_contact(&mut self) {
         let h = self.contact_dt;
         let step = &self.contact_coefficients[usize::from(self.damped)];
-        let delta0 = self.hammer_x - contact_position;
+        let delta0 = self.hammer_x - self.contact_position_m;
         let mut free_q = [0.0; COORDINATES];
         let mut free_v = [0.0; COORDINATES];
         let mut delta_free = self.hammer_x + h * self.hammer_v;
         for (i, (mode, coefficients)) in self.modes.iter().zip(&step.modes).enumerate() {
             free_v[i] = (coefficients.velocity_scale * mode.v
                 - coefficients.position_scale * mode.q)
-                / coefficients.denominator;
+                * coefficients.inverse_denominator;
             free_q[i] = mode.q + 0.5 * h * (mode.v + free_v[i]);
             delta_free -= self.hammer_weights[i] * free_q[i];
         }
@@ -583,7 +593,7 @@ impl Voice {
                 self.hammer_v = 0.0;
             }
         }
-        contact_position
+        self.contact_position_m = contact_position;
     }
 
     fn contact_position(&self) -> f64 {
@@ -826,7 +836,20 @@ fn fork_modes(profile: Profile, frequency: f64, scale: f64) -> [ModeSpec; MODES]
 /// A resonance at `f` with a T60 of `FRAME_DECAY_SECONDS` has pole radius
 /// `r = 1000^(-1 / (T60 * rate))`, and the recursion is
 /// `y = 2 r cos(w) y[-1] - r^2 y[-2] + x`.
-fn frame_coefficients(rate: f64) -> [(f64, f64); FRAME_MODES] {
+#[inline]
+fn advance_frame_pair(
+    [recent, older]: [[f64; 2]; 2],
+    [a1, a2]: [[f64; 2]; 2],
+    levels: [f64; 2],
+    drive: f64,
+) -> [f64; 2] {
+    [
+        a1[0] * recent[0] - a2[0] * older[0] + drive * levels[0],
+        a1[1] * recent[1] - a2[1] * older[1] + drive * levels[1],
+    ]
+}
+
+fn frame_coefficients(rate: f64) -> [[[f64; 2]; 2]; FRAME_PAIRS] {
     let mut out = [(0.0, 0.0); FRAME_MODES];
     let radius = (-1000.0_f64.ln() / (FRAME_DECAY_SECONDS * rate)).exp();
     for (i, slot) in out.iter_mut().enumerate() {
@@ -838,7 +861,11 @@ fn frame_coefficients(rate: f64) -> [(f64, f64); FRAME_MODES] {
         let omega = TAU * FRAME_HZ[i] / rate;
         *slot = (2.0 * radius * omega.cos(), radius * radius);
     }
-    out
+    core::array::from_fn(|i| {
+        let (a1_0, a2_0) = out[2 * i];
+        let (a1_1, a2_1) = out[2 * i + 1];
+        [[a1_0, a1_1], [a2_0, a2_1]]
+    })
 }
 
 /// How much faster the second principal axis runs than the first.
