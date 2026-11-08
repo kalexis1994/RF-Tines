@@ -438,9 +438,10 @@ impl Processor for RfTinesProcessor {
                 .zip(output[start..finish].chunks_exact_mut(outputs as usize))
             {
                 let [left, right] = self.electronics.process(sample);
-                channels[0] = left;
                 if outputs == 2 {
-                    channels[1] = right;
+                    channels.copy_from_slice(&self.electronics.protect_output([left, right]));
+                } else {
+                    channels[0] = self.electronics.protect_output([left, left])[0];
                 }
             }
             frame = end;

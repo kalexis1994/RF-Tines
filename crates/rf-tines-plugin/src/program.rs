@@ -135,7 +135,7 @@ pub fn catalog(
             json!({"id": format!("custom.{}", document.id), "name": document.name,
             "bank": "user", "category": "Electric Piano", "order": factory + i,
             "tags": ["custom", "uncalibrated"], "editable": true,
-            "description": "Saved voicing. Level compensated pickup; no limiter."}),
+            "description": "Saved voicing with a level-compensated pickup."}),
         );
     }
     write(&catalog, destination)
@@ -224,7 +224,7 @@ const FIELDS: [Field; 19] = [
     (
         "gain",
         "Output Gain",
-        "Start at 0.100x. Watch host meters; no limiter.",
+        "Factory volume is 0.25x. Check the host meter.",
         0,
         1_000_000.0,
         0,

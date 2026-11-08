@@ -5,9 +5,9 @@ use crate::{
 use rf_tines_dsp::{PickupLaw, Profile};
 use serde::{Deserialize, Serialize};
 
-/// Conservative starting gain for the measured ten-key repeated-strike case.
-/// Not a limiter or a guarantee for arbitrary accumulated mechanical energy.
-pub const DEFAULT_GAIN: f64 = 0.1;
+/// Factory instrument level, calibrated against RF-EPiano.
+pub const DEFAULT_GAIN: f64 = 0.25;
+const LEGACY_GAIN: f64 = 0.1;
 /// Parameter order: gain, law, distance, alignment, hardness, sustain, bell,
 /// dynamics, then the seven panel electronics, then the four mechanical
 /// controls: hammer mass, tine mass, pole radius and axis twist.
@@ -131,7 +131,11 @@ impl Default for Settings {
 /// sits below what the service manual permits, for reasons that are still
 /// open.
 pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
-    let default = Settings::default();
+    let instrument = Settings::default();
+    let default = Settings {
+        gain: LEGACY_GAIN,
+        ..instrument
+    };
     [
         (
             "research-direct",
@@ -314,7 +318,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.6,
                 pole: 0.72,
                 twist: 0.3,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -339,7 +343,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.52,
                 pole: 0.62,
                 twist: 0.18,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -366,7 +370,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.52,
                 pole: 0.62,
                 twist: 0.18,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -391,7 +395,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.44,
                 pole: 0.5,
                 twist: 0.12,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -418,7 +422,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.44,
                 pole: 0.5,
                 twist: 0.12,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -443,7 +447,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.38,
                 pole: 0.42,
                 twist: 0.08,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -471,7 +475,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.42,
                 pole: 0.46,
                 twist: 0.26,
-                ..default
+                ..instrument
             },
         ),
         (
@@ -496,7 +500,7 @@ pub fn presets() -> [(&'static str, &'static str, &'static str, Settings); 18] {
                 tine: 0.72,
                 pole: 0.8,
                 twist: 0.34,
-                ..default
+                ..instrument
             },
         ),
     ]

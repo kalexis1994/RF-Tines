@@ -27,7 +27,7 @@ values, preset IDs and saved state are unchanged.
 | Hammer & Touch | Hammer Hardness; Dynamics | Contact stiffness and MIDI-velocity-to-hammer-speed mapping. Dynamics is a performance mapping, not a separate physical component. |
 | Tine & Tonebar | Sustain; Bell | Sustain currently couples tine and tonebar decay. Bell changes excitation of the second bending mode; it is not a bell oscillator or a proven one-to-one tonebar adjustment. |
 | Pickup | Pickup Distance; Tine Alignment; Pickup Model | Base gap, lateral offset and transfer model. Register Aperture includes the frozen upper-register geometry. |
-| Output | Output Gain | Final gain after shared pickup compensation. No implied amplifier, cabinet, limiter or room simulation. |
+| Output | Output Gain | Gain after shared pickup compensation. Stereo-linked peak protection follows the panel electronics. |
 
 The PLAY page uses four accessible tabs with one visible panel, starting in
 Hammer & Touch. Switching panels does not navigate to a fragment or scroll
@@ -120,9 +120,9 @@ mode, modulation depth and speed settle with 10 ms exponential smoothing.
 Suitcase Vibrato is sinusoidal, complementary amplitude modulation. Each
 channel gain stays between zero and one. A single-channel host receives the
 left-channel tremolo; averaging stereo cancels the movement and retains the
-mean attenuation. Bypassed modulation has unity gain. No amplifier saturation,
-speaker cabinet or limiter is implied. Existing engine output gain smoothing
-remains in use. Electronic edits do not rebuild the physical voice profiles.
+mean attenuation. Bypassed modulation has unity gain. The final output protects
+both channels with the same gain above 0.95 FS and recovers with a 50 ms time
+constant. Electronic edits do not rebuild the physical voice profiles.
 
 ### Instrument programs
 

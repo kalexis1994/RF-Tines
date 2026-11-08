@@ -3,9 +3,13 @@
 use crate::Settings;
 use std::f64::consts::TAU;
 
+const OUTPUT_CEILING: f32 = 0.95;
+
 pub struct Electronics {
     rate: f64,
     smoothing: f64,
+    output_release: f64,
+    output_gain: f64,
     low_coefficient: f64,
     high_coefficient: f64,
     low: f64,
@@ -27,6 +31,8 @@ impl Electronics {
         let mut result = Self {
             rate,
             smoothing: 1.0 - (-1.0 / (0.01 * rate)).exp(),
+            output_release: 1.0 - (-1.0 / (0.05 * rate)).exp(),
+            output_gain: 1.0,
             low_coefficient: 1.0 - (-TAU * 200.0 / rate).exp(),
             high_coefficient: 1.0 - (-TAU * 2500.0 / rate).exp(),
             low: 0.0,
@@ -58,6 +64,7 @@ impl Electronics {
         self.high = 0.0;
         self.stage_low = 0.0;
         self.phase = 0.0;
+        self.output_gain = 1.0;
     }
 
     pub fn process(&mut self, sample: f32) -> [f32; 2] {
@@ -87,6 +94,23 @@ impl Electronics {
             (tone * (1.0 - 0.5 * depth - 0.5 * depth * movement)) as f32,
         ]
     }
+
+    pub fn protect_output(&mut self, [left, right]: [f32; 2]) -> [f32; 2] {
+        let peak = left.abs().max(right.abs());
+        if peak > OUTPUT_CEILING || self.output_gain < 1.0 {
+            // Protect both channels with the same gain to preserve the stereo image.
+            self.output_gain += self.output_release * (1.0 - self.output_gain);
+            if self.output_gain > 0.99999 {
+                self.output_gain = 1.0;
+            }
+            if f64::from(peak) * self.output_gain > f64::from(OUTPUT_CEILING) {
+                self.output_gain = f64::from(OUTPUT_CEILING) / f64::from(peak);
+            }
+            let gain = self.output_gain as f32;
+            return [left * gain, right * gain];
+        }
+        [left, right]
+    }
 }
 
 #[cfg(test)]
@@ -113,6 +137,34 @@ mod tests {
             }
             assert!(fx.process(1.0)[0].abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn overload_protection_is_stereo_linked_and_recovers_smoothly() {
+        let settings = Settings {
+            vibrato: 1.0,
+            intensity: 1.0,
+            ..Settings::default()
+        };
+        let mut reference = Electronics::new(48000.0, settings);
+        let mut guarded = Electronics::new(48000.0, settings);
+        for _ in 0..1500 {
+            reference.process(0.0);
+            guarded.process(0.0);
+        }
+        let [left, right] = reference.process(1.0);
+        assert!(left > right && right > 0.0);
+        let louder = guarded.process(2.0);
+        let [limited_left, limited_right] = guarded.protect_output(louder);
+        assert!((limited_left - OUTPUT_CEILING).abs() < 1e-6);
+        assert!((limited_right - OUTPUT_CEILING * right / left).abs() < 1e-6);
+        let gain = guarded.output_gain;
+        guarded.protect_output([0.25, 0.25]);
+        assert!(guarded.output_gain > gain && guarded.output_gain - gain < 0.001);
+        for _ in 0..48000 {
+            guarded.protect_output([0.25, 0.25]);
+        }
+        assert_eq!(guarded.output_gain, 1.0);
     }
     #[test]
     fn stereo_tremolo_has_bounded_complementary_channels_and_requested_period() {

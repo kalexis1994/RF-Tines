@@ -4,6 +4,13 @@ All notable RF-Tines changes are recorded here. Versions follow semantic
 versioning while the public plugin contract is still below 1.0. Entries for
 releases published before the rename keep the names that were current then.
 
+## 0.2.10 - 2026-11-08
+
+- Raised the factory instrument levels by 8 dB to sit closer to RF-EPiano.
+  Saved programs and sessions keep their stored Volume values.
+- Added stereo-linked peak protection to the final output for overloaded
+  passages, with a smooth release. The piano model and pickup are unchanged.
+
 ## 0.2.9 - 2026-11-07
 
 - Reduced the cost of 32-note attacks and sustained polyphony. The two-axis
