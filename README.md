@@ -2,7 +2,7 @@
 
 ![RF-Tines instrument](package/branding/banner.png)
 
-RF-Tines is a physically modelled tine electric piano for RackForge. A hammer strikes a metal tine and a pickup turns its motion into sound. A light touch brings out the bell-like tone. A firm strike brings out the bark.
+RF-Tines is a physically modelled tine electric piano for RackForge inspired by the Fender Rhodes Stage 73. A hammer strikes a metal tine and a pickup turns its motion into sound. A light touch brings out the bell-like tone. A firm strike brings out the bark.
 
 ## Install
 
