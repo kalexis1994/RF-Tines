@@ -24,6 +24,8 @@ Open **RF-Tines** in PLAY and use the program selector to move between the eight
 
 Use the panel's tone controls to fit the piano around other instruments. On programs with stereo tremolo, **Speed** sets how quickly it moves and **Intensity** sets how pronounced the movement is. **Volume** sets the output from the instrument.
 
+A continuous sustain pedal sends MIDI CC 64 positions between 0 and 127. Partial pedal travel changes the damper pressure on released tines, letting you shorten their ring gradually or catch a fading note. A held key keeps its own damper clear.
+
 In the program editor, try **Hammer Hardness** to change the attack and **Pickup Distance** to change how the tine's motion comes through. Save your own program to keep the adjustments. In **CONFIG** you can import or export saved voices as `.rftines` files.
 
 ## License
