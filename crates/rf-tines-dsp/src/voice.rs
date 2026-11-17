@@ -73,8 +73,8 @@ struct Mode {
     mass: f64,
     omega: f64,
     gamma: f64,
-    free: [[f64; 4]; 2],
-    contact_free: [[f64; 4]; 2],
+    free: [[f64; 4]; 3],
+    contact_free: [[f64; 4]; 3],
 }
 
 impl Mode {
@@ -85,8 +85,8 @@ impl Mode {
             mass,
             omega: 0.0,
             gamma,
-            free: [[0.0; 4]; 2],
-            contact_free: [[0.0; 4]; 2],
+            free: [[0.0; 4]; 3],
+            contact_free: [[0.0; 4]; 3],
         };
         mode.set(frequency, mass, gamma, dt, contact_dt);
         mode
@@ -95,29 +95,36 @@ impl Mode {
     /// Replace frequency, mass and loss while keeping the modal state.
     fn set(&mut self, frequency: f64, mass: f64, gamma: f64, dt: f64, contact_dt: f64) {
         let omega = TAU * frequency;
-        let transitions = |dt: f64| {
-            [gamma, gamma + 55.0].map(|g| {
-                let wd = (omega * omega - g * g).sqrt();
-                let (sin, cos) = (wd * dt).sin_cos();
-                let envelope = (-g * dt).exp();
-                let s = sin / wd;
-                [
-                    envelope * (cos + g * s),
-                    envelope * s,
-                    -envelope * omega * omega * s,
-                    envelope * (cos - g * s),
-                ]
-            })
-        };
         self.mass = mass;
         self.omega = omega;
         self.gamma = gamma;
-        self.free = transitions(dt);
-        self.contact_free = transitions(contact_dt);
+        self.free =
+            [gamma, gamma + 55.0, gamma + 55.0].map(|loss| Self::transition(omega, loss, dt));
+        self.contact_free = [gamma, gamma + 55.0, gamma + 55.0]
+            .map(|loss| Self::transition(omega, loss, contact_dt));
     }
 
-    fn advance_contact_remainder(&mut self, damped: bool) {
-        self.advance(self.contact_free[usize::from(damped)]);
+    fn transition(omega: f64, gamma: f64, dt: f64) -> [f64; 4] {
+        let wd = (omega * omega - gamma * gamma).sqrt();
+        let (sin, cos) = (wd * dt).sin_cos();
+        let envelope = (-gamma * dt).exp();
+        let s = sin / wd;
+        [
+            envelope * (cos + gamma * s),
+            envelope * s,
+            -envelope * omega * omega * s,
+            envelope * (cos - gamma * s),
+        ]
+    }
+
+    fn set_damper_pressure(&mut self, pressure: f64, dt: f64, contact_dt: f64) {
+        let gamma = self.gamma + 55.0 * pressure;
+        self.free[2] = Self::transition(self.omega, gamma, dt);
+        self.contact_free[2] = Self::transition(self.omega, gamma, contact_dt);
+    }
+
+    fn advance_contact_remainder(&mut self, damper_index: usize) {
+        self.advance(self.contact_free[damper_index]);
     }
 
     fn advance(&mut self, [a, b, c, d]: [f64; 4]) {
@@ -150,12 +157,12 @@ impl ContactStep {
         weights: &[f64; COORDINATES],
         hammer_mass: f64,
         h: f64,
-        damped: bool,
+        damper_pressure: f64,
     ) -> Self {
         let mut compliance = h * h / (2.0 * hammer_mass);
         let modes = core::array::from_fn(|i| {
             let mode = &modes[i];
-            let gamma = mode.gamma + if damped { 55.0 } else { 0.0 };
+            let gamma = mode.gamma + 55.0 * damper_pressure;
             let stiffness = 0.25 * h * h * mode.omega * mode.omega;
             let denominator = 1.0 + h * gamma + stiffness;
             let response_velocity = h * weights[i] / (mode.mass * denominator);
@@ -196,13 +203,14 @@ pub struct Voice {
     dt: f64,
     contact_dt: f64,
     contact_steps: usize,
-    contact_coefficients: [ContactStep; 2],
+    contact_coefficients: [ContactStep; 3],
     hammer_mass: f64,
     contact_position_m: f64,
     hammer_x: f64,
     hammer_v: f64,
     contact: bool,
-    damped: bool,
+    damper_pressure: f64,
+    damper_index: usize,
     active: bool,
     force: f64,
     signal: f64,
@@ -291,8 +299,8 @@ impl Voice {
         });
         let (hammer_weights, pickup_weights) = resolve_axes(profile, &table);
         let hammer_mass = profile.hammer_mass_kg * scale.sqrt();
-        let contact_coefficients = [false, true].map(|damped| {
-            ContactStep::prepare(&modes, &hammer_weights, hammer_mass, contact_dt, damped)
+        let contact_coefficients = [0.0, 1.0, 1.0].map(|pressure| {
+            ContactStep::prepare(&modes, &hammer_weights, hammer_mass, contact_dt, pressure)
         });
         Self {
             modes,
@@ -315,7 +323,8 @@ impl Voice {
             hammer_x: 0.0,
             hammer_v: 0.0,
             contact: false,
-            damped: true,
+            damper_pressure: 1.0,
+            damper_index: 1,
             active: false,
             force: 0.0,
             signal: 0.0,
@@ -400,15 +409,20 @@ impl Voice {
     }
 
     fn prepare_contact(&mut self) {
-        self.contact_coefficients = [false, true].map(|damped| {
+        self.contact_coefficients = [0.0, 1.0, self.damper_pressure].map(|pressure| {
             ContactStep::prepare(
                 &self.modes,
                 &self.hammer_weights,
                 self.hammer_mass,
                 self.contact_dt,
-                damped,
+                pressure,
             )
         });
+        if self.damper_index == 2 {
+            for mode in &mut self.modes {
+                mode.set_damper_pressure(self.damper_pressure, self.dt, self.contact_dt);
+            }
+        }
     }
 
     /// Retriggering retains every resonator coordinate and its velocity.
@@ -423,13 +437,46 @@ impl Voice {
         self.contact = true;
         self.frame_state = [[[0.0; 2]; 2]; FRAME_PAIRS];
         self.frame_ringing = false;
-        self.damped = false;
+        self.set_damped(false);
         self.active = true;
         true
     }
 
     pub fn set_damped(&mut self, damped: bool) {
-        self.damped = damped;
+        self.set_damper_pressure(if damped { 1.0 } else { 0.0 });
+    }
+
+    /// Felt contact from a clear tine (0) to the fully seated damper (1).
+    /// Only a pressure change prepares coefficients. Rendering keeps the
+    /// same modal updates and the original precomputed endpoint matrices.
+    pub fn set_damper_pressure(&mut self, pressure: f64) -> bool {
+        if !pressure.is_finite() || !(0.0..=1.0).contains(&pressure) {
+            return false;
+        }
+        if pressure == self.damper_pressure {
+            return true;
+        }
+        self.damper_pressure = pressure;
+        self.damper_index = if pressure == 0.0 {
+            0
+        } else if pressure == 1.0 {
+            1
+        } else {
+            2
+        };
+        if self.damper_index == 2 && self.active {
+            for mode in &mut self.modes {
+                mode.set_damper_pressure(pressure, self.dt, self.contact_dt);
+            }
+            self.contact_coefficients[2] = ContactStep::prepare(
+                &self.modes,
+                &self.hammer_weights,
+                self.hammer_mass,
+                self.contact_dt,
+                pressure,
+            );
+        }
+        true
     }
 
     /// Prepared contact-only subdivision count; free motion keeps the base rate.
@@ -457,7 +504,7 @@ impl Voice {
                     // Complete the same physical interval after a separation
                     // inside this tick; never advance a full extra base step.
                     for mode in &mut self.modes {
-                        mode.advance_contact_remainder(self.damped);
+                        mode.advance_contact_remainder(self.damper_index);
                     }
                 }
             }
@@ -553,7 +600,7 @@ impl Voice {
 
     fn advance_contact(&mut self) {
         let h = self.contact_dt;
-        let step = &self.contact_coefficients[usize::from(self.damped)];
+        let step = &self.contact_coefficients[self.damper_index];
         let delta0 = self.hammer_x - self.contact_position_m;
         let mut free_q = [0.0; COORDINATES];
         let mut free_v = [0.0; COORDINATES];
@@ -619,7 +666,7 @@ impl Voice {
     }
 
     fn advance_free_and_tip(&mut self) -> ([f64; 2], [f64; 2]) {
-        let damped = usize::from(self.damped);
+        let damped = self.damper_index;
         let mut position = [0.0; 2];
         let mut velocity = [0.0; 2];
         for (c, mode) in self.modes.iter_mut().enumerate() {

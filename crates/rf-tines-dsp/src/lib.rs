@@ -68,6 +68,7 @@ pub struct Engine {
     held: [u16; KEY_COUNT],
     sustained: [u16; KEY_COUNT],
     pedals: u16,
+    pedal_levels: [f64; 16],
     pitch_bends: [f64; 16],
     decimator: filter::Decimator,
     laboratory: Option<laboratory::Laboratory>,
@@ -107,6 +108,7 @@ impl Engine {
             held: [0; KEY_COUNT],
             sustained: [0; KEY_COUNT],
             pedals: 0,
+            pedal_levels: [0.0; 16],
             pitch_bends: [0.0; 16],
             decimator: filter::Decimator::new(),
             laboratory: None,
@@ -247,7 +249,11 @@ impl Engine {
         let bit = 1 << channel;
         match controller {
             64 => {
-                if value >= 0.5 {
+                if self.pedal_levels[channel as usize] == value {
+                    return true;
+                }
+                self.pedal_levels[channel as usize] = value;
+                if value > 0.0 {
                     self.pedals |= bit;
                     // A late pedal catches a still-vibrating released tine.
                     for i in 0..KEY_COUNT {
@@ -287,6 +293,7 @@ impl Engine {
             }
             121 => {
                 self.pedals &= !bit;
+                self.pedal_levels[channel as usize] = 0.0;
                 for i in 0..KEY_COUNT {
                     self.sustained[i] &= !bit;
                     self.update_damper(i);
@@ -315,7 +322,22 @@ impl Engine {
     }
 
     fn update_damper(&mut self, i: usize) {
-        self.voices[i].set_damped((self.held[i] | self.sustained[i]) == 0);
+        let mut lift = 0.0_f64;
+        let mut owners = self.sustained[i];
+        while owners != 0 {
+            let channel = owners.trailing_zeros() as usize;
+            owners &= owners - 1;
+            lift = lift.max(self.pedal_levels[channel]);
+        }
+        // The held key lifts its own damper completely. Pedal travel reduces
+        // felt pressure continuously, with full contact at 0 and clearance at
+        // 1. The squared contact curve is provisional pending pedal recordings.
+        let pressure = if self.held[i] != 0 {
+            0.0
+        } else {
+            (1.0 - lift) * (1.0 - lift)
+        };
+        self.voices[i].set_damper_pressure(pressure);
     }
 
     /// A mono direct signal, after a 127-tap antialias filter. No limiter,
@@ -455,6 +477,7 @@ impl Engine {
         self.held.fill(0);
         self.sustained.fill(0);
         self.pedals = 0;
+        self.pedal_levels.fill(0.0);
         self.pitch_bends.fill(0.0);
         for voice in self.voices.iter_mut() {
             voice.set_pitch_ratio(1.0);
